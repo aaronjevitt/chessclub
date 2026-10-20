@@ -352,3 +352,26 @@ body.tv-mode main { max-width: none; padding: 0; }
 .tv-player .clock { margin-left: auto; font-size: 1em; padding: .05em .45em; }
 .custom-tc input { width: 5.5rem; flex: none; }
 .custom-tc[hidden] { display: none; }
+
+/* ---------- mobile: no double-tap zoom ---------- */
+/* Pinch-zoom still works; double-tap zoom (triggered by tapping a piece then a square) does not. */
+html { touch-action: manipulation; }
+@media (max-width: 900px) {
+  /* iOS zooms into focused inputs whose text is smaller than 16px. */
+  input, select, textarea { font-size: 16px; }
+}
+
+/* ---------- projector: finished games strip ---------- */
+.tv-finished {
+  flex: none; display: flex; align-items: center; gap: 14px; padding: 10px 20px; overflow-x: auto;
+  border-top: 1px solid var(--border); background: var(--surface); height: clamp(110px, 16vh, 190px);
+}
+.tv-finished[hidden] { display: none; }
+.tv-finished-label { writing-mode: vertical-rl; transform: rotate(180deg); color: var(--muted); font-weight: 700; letter-spacing: .08em; text-transform: uppercase; font-size: .8rem; }
+.tv-done { display: flex; gap: 10px; align-items: center; height: 100%; color: var(--text); flex: none; }
+.tv-done:hover { text-decoration: none; }
+.tv-done .board { height: 100%; width: auto; aspect-ratio: 1; box-shadow: none; filter: saturate(.7); }
+.tv-done-info { display: flex; flex-direction: column; gap: 2px; max-width: 16ch; font-size: clamp(.75rem, 1.3vh, 1rem); }
+.tv-done-score { font-size: 1.8em; font-weight: 800; line-height: 1; }
+.tv-done-names { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tv-done-why { color: var(--muted); font-size: .9em; }

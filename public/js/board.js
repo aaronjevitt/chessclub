@@ -79,6 +79,12 @@ export class Board {
     container.innerHTML = '';
     container.appendChild(this.el);
     this.el.addEventListener('pointerdown', (e) => this._pointerDown(e));
+    // Moves are made with pointer events; cancelling touchend stops the two quick taps of a move
+    // (piece, then square) from being treated as a double-tap zoom on phones. The promotion picker
+    // still needs its clicks.
+    this.el.addEventListener('touchend', (e) => {
+      if (!e.target.closest('.promotion')) e.preventDefault();
+    }, { passive: false });
     this._onPointerMove = (e) => this._pointerMove(e);
     this._onPointerUp = (e) => this._pointerUp(e);
   }

@@ -73,6 +73,18 @@ function tile(game, evalBar) {
       moveNo ? ` · move ${moveNo}` : ''));
 }
 
+/** Small tile for the strip of just-finished games along the bottom of the screen. */
+function finishedTile(game) {
+  const score = game.result === '1/2-1/2' ? '½-½' : game.result;
+  return el('a', { href: `#/game/${game.id}`, class: 'tv-done' },
+    renderMiniBoard(game.fen, 'white', boardDecorations(game)),
+    el('div', { class: 'tv-done-info' },
+      el('div', { class: 'tv-done-score' }, score),
+      el('div', { class: 'tv-done-names' }, game.white.name || '?'),
+      el('div', { class: 'tv-done-names' }, game.black.name || '?'),
+      el('div', { class: 'tv-done-why' }, game.termination || '')));
+}
+
 export async function mountTvView(root, clubId) {
   const socket = getSocket();
   const { club, membership } = await api(`/clubs/${clubId}`);
@@ -81,6 +93,7 @@ export async function mountTvView(root, clubId) {
   const liveCount = el('span', { class: 'tv-live' });
   const clock = el('span', { class: 'tv-clock' });
   const grid = el('div', { class: 'tv-grid' });
+  const finishedStrip = el('div', { class: 'tv-finished', hidden: true });
   const fullscreenBtn = el('button', {
     type: 'button',
     class: 'btn ghost small',
@@ -90,7 +103,8 @@ export async function mountTvView(root, clubId) {
     el('header', { class: 'tv-header' },
       el('div', { class: 'tv-title' }, el('span', { class: 'logo-mark' }, '♞'), club.name, liveCount),
       el('div', { class: 'row' }, clock, fullscreenBtn, el('a', { href: `#/club/${club.id}`, class: 'btn ghost small' }, 'Exit'))),
-    grid));
+    grid,
+    finishedStrip));
   document.body.classList.add('tv-mode');
 
   let games = [];
@@ -114,10 +128,11 @@ export async function mountTvView(root, clubId) {
     return bar;
   }
 
-  const hasEvalBars = () => games.some((g) => g.meta?.evalBar);
+  const liveGames = () => games.filter((g) => g.status === 'active');
+  const hasEvalBars = () => liveGames().some((g) => g.meta?.evalBar);
 
   function layout() {
-    const n = games.length;
+    const n = liveGames().length;
     if (!n) return;
     const style = getComputedStyle(grid);
     const width = grid.clientWidth - parseFloat(style.paddingLeft) - parseFloat(style.paddingRight);
@@ -142,7 +157,14 @@ export async function mountTvView(root, clubId) {
     const live = games.filter((g) => g.status === 'active').length;
     clear(liveCount, live ? el('span', { class: 'live-text' }, ` ● ${live} live`) : '');
     clear(clock, new Date(now).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }));
-    if (!games.length) {
+    // Just-finished games sit small along the bottom; live games get the rest of the screen.
+    const finished = games.filter((g) => g.status !== 'active');
+    finishedStrip.hidden = !finished.length;
+    clear(finishedStrip, finished.length ? el('div', { class: 'tv-finished-label' }, 'Finished') : null, finished.map(finishedTile));
+    const active = liveGames();
+    for (const id of evalBars.keys()) if (!active.some((g) => g.id === id)) evalBars.delete(id);
+    clockRefs = [];
+    if (!active.length) {
       grid.style.gridTemplateColumns = '';
       clear(grid, el('div', { class: 'tv-empty' },
         el('div', { class: 'tv-empty-icon' }, '♞'),
@@ -150,9 +172,7 @@ export async function mountTvView(root, clubId) {
         el('div', { class: 'muted' }, 'Live club games will appear here automatically.')));
       return;
     }
-    for (const id of evalBars.keys()) if (!games.some((g) => g.id === id)) evalBars.delete(id);
-    clockRefs = [];
-    clear(grid, games.map((g) => tile(g, evalBarFor(g))));
+    clear(grid, active.map((g) => tile(g, evalBarFor(g))));
     tickClocks();
     layout();
   }
