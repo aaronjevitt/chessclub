@@ -1,12 +1,15 @@
 #!/usr/bin/env bash
 # Deploy Chess Club into a Proxmox VE LXC container.
 #
-# Run on the Proxmox host as root:
-#   ./deploy/proxmox-lxc.sh                 create a new container and deploy
-#   ./deploy/proxmox-lxc.sh update <CTID>   redeploy the latest code into an existing container
+# Run on the Proxmox host as root — no checkout needed, the code is cloned inside the container:
+#   bash -c "$(curl -fsSL https://raw.githubusercontent.com/aaronjevitt/chessclub/main/deploy/proxmox-lxc.sh)"
 #
-# Source code: when run from inside a chessclub checkout, that checkout is copied into the
-# container (works for private repos). Otherwise REPO_URL/BRANCH is cloned inside the container.
+# Updating later (from the Proxmox host):
+#   pct exec <CTID> -- chessclub-update
+#
+# Or from a checkout of the repo:
+#   ./deploy/proxmox-lxc.sh                 create a new container and deploy this checkout
+#   ./deploy/proxmox-lxc.sh update <CTID>   redeploy this checkout into an existing container
 #
 # Settings (environment variables, all optional):
 #   CTID              container id                       (default: next free id)
@@ -26,7 +29,7 @@
 #   PORT              port the app listens on            (default: 3000)
 #   COOKIE_SECURE     1 when served over HTTPS           (default: 0)
 #   REPO_URL          git URL when not run from a checkout (default: https://github.com/aaronjevitt/chessclub.git)
-#   BRANCH            git branch to deploy               (default: main)
+#   BRANCH            git branch to deploy               (default: the repo's default branch)
 #   SOURCE_DIR        force copying this local directory instead of cloning
 
 set -euo pipefail
@@ -48,7 +51,7 @@ COOKIE_SECURE="${COOKIE_SECURE:-0}"
 USER_REPO_URL="${REPO_URL:-}"
 USER_BRANCH="${BRANCH:-}"
 REPO_URL="${REPO_URL:-https://github.com/aaronjevitt/chessclub.git}"
-BRANCH="${BRANCH:-main}"
+BRANCH="${BRANCH:-}"
 
 info() { printf '\033[1;32m==>\033[0m %s\n' "$*"; }
 warn() { printf '\033[1;33mwarning:\033[0m %s\n' "$*" >&2; }
@@ -59,9 +62,13 @@ die() { printf '\033[1;31merror:\033[0m %s\n' "$*" >&2; exit 1; }
 
 # ---------- pick the code source ----------
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-if [[ -z "${SOURCE_DIR:-}" && -f "$SCRIPT_DIR/../package.json" ]] && grep -q '"name": "chessclub"' "$SCRIPT_DIR/../package.json"; then
-  SOURCE_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+# Only look for a surrounding checkout when the script runs from a file (not via `bash -c "$(curl …)"`).
+SCRIPT_PATH="${BASH_SOURCE[0]:-}"
+if [[ -z "${SOURCE_DIR:-}" && -f "$SCRIPT_PATH" ]]; then
+  SCRIPT_DIR="$(cd "$(dirname "$SCRIPT_PATH")" && pwd)"
+  if [[ -f "$SCRIPT_DIR/../package.json" ]] && grep -q '"name": "chessclub"' "$SCRIPT_DIR/../package.json"; then
+    SOURCE_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+  fi
 fi
 if [[ -n "${SOURCE_DIR:-}" ]]; then
   [[ -f "$SOURCE_DIR/package.json" ]] || die "SOURCE_DIR=$SOURCE_DIR does not contain package.json"
@@ -77,8 +84,16 @@ write_provision_script() {
 #!/usr/bin/env bash
 set -euo pipefail
 export DEBIAN_FRONTEND=noninteractive
+# This script is also installed as /usr/local/sbin/chessclub-update; then it reuses the recorded settings.
 # shellcheck disable=SC1091
-source /root/chessclub-deploy.env
+if [[ -f /root/chessclub-deploy.env ]]; then source /root/chessclub-deploy.env; else source /etc/chessclub/deploy.env; fi
+PORT="${PORT:-3000}"
+COOKIE_SECURE="${COOKIE_SECURE:-0}"
+if [[ "$SOURCE_MODE" == push && ! -f /root/chessclub-src.tar.gz ]]; then
+  echo "This container was deployed from a local checkout; update it from the Proxmox host with:" >&2
+  echo "  ./deploy/proxmox-lxc.sh update <CTID>" >&2
+  exit 1
+fi
 
 APP_DIR=/opt/chessclub
 DATA_DIR=/var/lib/chessclub
@@ -106,7 +121,8 @@ if [[ "$SOURCE_MODE" == push ]]; then
   tar -xzf /root/chessclub-src.tar.gz -C "$NEW_DIR"
   rm -f /root/chessclub-src.tar.gz
 else
-  git clone --quiet --depth 1 --branch "$BRANCH" "$REPO_URL" "$NEW_DIR"
+  git clone --quiet --depth 1 ${BRANCH:+--branch "$BRANCH"} "$REPO_URL" "$NEW_DIR"
+  echo "--> deployed commit $(git -C "$NEW_DIR" log -1 --format='%h %s')"
 fi
 [[ -f "$NEW_DIR/package.json" ]] || { echo "no package.json in fetched code" >&2; exit 1; }
 
@@ -221,12 +237,13 @@ deploy_into() {
       --exclude=./node_modules --exclude=./data --exclude=./.git --exclude='*.db' --exclude='*.db-*' .
     pct push "$ctid" "$tmp/src.tar.gz" /root/chessclub-src.tar.gz --perms 0600
   else
-    info "deploying $REPO_URL ($BRANCH)"
+    info "deploying $REPO_URL (${BRANCH:-default branch})"
   fi
 
   info "provisioning CT $ctid"
   pct exec "$ctid" -- bash /root/chessclub-provision.sh
-  pct exec "$ctid" -- rm -f /root/chessclub-provision.sh /root/chessclub-deploy.env
+  pct exec "$ctid" -- rm -f /root/chessclub-deploy.env
+  pct exec "$ctid" -- mv /root/chessclub-provision.sh /usr/local/sbin/chessclub-update
 }
 
 print_summary() {
@@ -238,7 +255,11 @@ print_summary() {
   echo "    Logs:     pct exec $ctid -- journalctl -u chessclub -f"
   echo "    Config:   /etc/chessclub/chessclub.env (inside the container)"
   echo "    Database: /var/lib/chessclub/chessclub.db (inside the container)"
-  echo "    Update:   $0 update $ctid"
+  if [[ "$SOURCE_MODE" == git ]]; then
+    echo "    Update:   pct exec $ctid -- chessclub-update"
+  else
+    echo "    Update:   ./deploy/proxmox-lxc.sh update $ctid   (from your checkout)"
+  fi
 }
 
 # ---------- update mode ----------
@@ -270,7 +291,7 @@ fi
 
 CTID="${CTID:-$(pvesh get /cluster/nextid)}"
 if pct status "$CTID" >/dev/null 2>&1; then
-  die "container $CTID already exists (use: $0 update $CTID)"
+  die "container $CTID already exists — to update it run: pct exec $CTID -- chessclub-update"
 fi
 
 info "looking up a Debian container template"

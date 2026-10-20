@@ -57,13 +57,22 @@ Clocks / time controls, ratings, password reset, and rate limiting on login are 
 
 ## Deploying to Proxmox (LXC)
 
-On the Proxmox host, as root, from a checkout of this repo:
+On the Proxmox host, as root — nothing to clone, the code is pulled inside the container:
 
 ```bash
-./deploy/proxmox-lxc.sh                    # create a Debian container and deploy (DHCP on vmbr0)
-IP=192.168.1.50/24 GATEWAY=192.168.1.1 ./deploy/proxmox-lxc.sh   # static IP
-./deploy/proxmox-lxc.sh update <CTID>      # redeploy the current code; the database is kept
+bash -c "$(curl -fsSL https://raw.githubusercontent.com/aaronjevitt/chessclub/main/deploy/proxmox-lxc.sh)"
+
+# static IP instead of DHCP:
+IP=192.168.1.50/24 GATEWAY=192.168.1.1 bash -c "$(curl -fsSL https://raw.githubusercontent.com/aaronjevitt/chessclub/main/deploy/proxmox-lxc.sh)"
 ```
+
+To update later (pulls the latest code; the database is kept):
+
+```bash
+pct exec <CTID> -- chessclub-update
+```
+
+You can also run `./deploy/proxmox-lxc.sh` from a checkout to deploy that checkout's code instead (update with `./deploy/proxmox-lxc.sh update <CTID>`).
 
 The script creates an unprivileged container, installs Node.js 22, and runs the app as a `chessclub` systemd service on port 3000. Data lives in `/var/lib/chessclub` and settings in `/etc/chessclub/chessclub.env` inside the container. All options (storage, cores, memory, bridge, VLAN, port, …) are listed at the top of the script.
 
