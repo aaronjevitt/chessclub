@@ -90,7 +90,7 @@ write_provision_script() {
 #!/usr/bin/env bash
 set -euo pipefail
 export DEBIAN_FRONTEND=noninteractive
-# This script is also installed as /usr/local/sbin/chessclub-update; then it reuses the recorded settings.
+# This script is also installed as /usr/sbin/chessclub-update; then it reuses the recorded settings.
 # shellcheck disable=SC1091
 if [[ -f /root/chessclub-deploy.env ]]; then source /root/chessclub-deploy.env; else source /etc/chessclub/deploy.env; fi
 PORT="${PORT:-3000}"
@@ -142,6 +142,21 @@ if [[ -d "$APP_DIR" ]]; then
   mv "$APP_DIR" "$APP_DIR.old"
 fi
 mv "$NEW_DIR" "$APP_DIR"
+
+# Install this script as the in-container updater. /usr/sbin is on the minimal PATH `pct exec` uses
+# (/usr/local/sbin is not). Prefer the copy embedded in the code just deployed, so the updater itself
+# picks up fixes on every update.
+UPDATER=/usr/sbin/chessclub-update
+if [[ -f "$APP_DIR/deploy/proxmox-lxc.sh" ]] &&
+  awk "/<<'PROVISION'\$/{f=1;next} /^PROVISION\$/{f=0} f" "$APP_DIR/deploy/proxmox-lxc.sh" >"$UPDATER.new" &&
+  [[ -s "$UPDATER.new" ]]; then
+  chmod 0755 "$UPDATER.new"
+  mv "$UPDATER.new" "$UPDATER"
+elif [[ "$(readlink -f "$0")" != "$UPDATER" ]]; then
+  rm -f "$UPDATER.new"
+  install -m 0755 "$0" "$UPDATER"
+fi
+rm -f /usr/local/sbin/chessclub-update
 
 install -d -m 0755 /etc/chessclub
 if [[ ! -f /etc/chessclub/chessclub.env ]]; then
@@ -249,7 +264,7 @@ deploy_into() {
   info "provisioning CT $ctid"
   pct exec "$ctid" -- bash /root/chessclub-provision.sh
   pct exec "$ctid" -- rm -f /root/chessclub-deploy.env
-  pct exec "$ctid" -- mv /root/chessclub-provision.sh /usr/local/sbin/chessclub-update
+  pct exec "$ctid" -- rm -f /root/chessclub-provision.sh
 }
 
 print_summary() {
