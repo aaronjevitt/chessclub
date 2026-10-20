@@ -15,6 +15,7 @@ export function computerName(level) {
 
 export function resultText(state) {
   if (state.status === 'aborted') return state.termination === 'broadcast stopped' ? 'Broadcast stopped' : 'Aborted';
+  if (state.status === 'paused') return null;
   if (state.status !== 'finished') return null;
   const who = state.result === '1-0' ? `${state.white.name} wins` : state.result === '0-1' ? `${state.black.name} wins` : 'Draw';
   return `${who}${state.termination ? ` — ${state.termination}` : ''}`;
@@ -217,6 +218,19 @@ export function mountGameView(root, { user, kind, id, navigate }) {
   }
 
   async function startBroadcast(clubId) {
+    // Restarting a stopped broadcast in the same club resumes the same game, so spectators keep watching.
+    const previous = state.broadcast;
+    if (previous && String(previous.clubId) === String(clubId)) {
+      try {
+        const { game } = await api(`/games/${previous.gameId}/resume`, { method: 'POST', body: { moves: state.moves } });
+        deleteLocalGame(user.id, state.id);
+        toast('Broadcast resumed');
+        navigate(`#/game/${game.id}`);
+        return;
+      } catch {
+        // The old broadcast can't be resumed (e.g. it was removed); start a new one instead.
+      }
+    }
     try {
       const { game } = await api(`/clubs/${clubId}/games`, {
         method: 'POST',
@@ -256,6 +270,7 @@ export function mountGameView(root, { user, kind, id, navigate }) {
       black: { name: snapshot.black.name },
       meta: snapshot.meta,
       createdAt: snapshot.createdAt,
+      broadcast: { gameId: snapshot.id, clubId: snapshot.clubId },
     };
     saveLocalGame(user.id, local);
     navigate(`#/local/${local.id}`);
@@ -324,6 +339,7 @@ export function mountGameView(root, { user, kind, id, navigate }) {
 
   function statusText(chess) {
     if (state.status === 'waiting') return 'Waiting for an opponent to accept the challenge';
+    if (state.status === 'paused') return 'Broadcast paused — it will continue here if the broadcaster resumes it';
     const res = resultText(state);
     if (res) return res;
     if (viewPly !== null) return `Reviewing move ${viewPly} of ${state.moves.length}`;
@@ -452,7 +468,7 @@ export function mountGameView(root, { user, kind, id, navigate }) {
       return clear(broadcast, el('p', { class: 'muted small' }, 'Private game on this device. Join a club to broadcast games.'));
     }
     const select = el('select', { 'aria-label': 'Club to broadcast to' },
-      myClubs.map((c) => el('option', { value: c.id }, c.name)));
+      myClubs.map((c) => el('option', { value: c.id, selected: String(c.id) === String(state.broadcast?.clubId) }, c.name)));
     clear(broadcast,
       el('p', { class: 'muted small' }, '🔒 Private game — only on this device.'),
       el('div', { class: 'row' }, select, button('📡 Broadcast', () => startBroadcast(select.value), { class: 'btn primary' })));

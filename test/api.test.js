@@ -203,9 +203,25 @@ test('broadcast games: computer, OTB, takeback, result, stop broadcast', async (
 
   const self = (await a.post(`/api/clubs/${club.id}/games`, { mode: 'self' })).body.game;
   assert.equal((await b.post(`/api/games/${self.id}/cancel`)).status, 403);
+  await a.post(`/api/games/${self.id}/move`, { san: 'e4' });
   const stopped = (await a.post(`/api/games/${self.id}/cancel`)).body.game;
-  assert.equal(stopped.status, 'aborted');
+  assert.equal(stopped.status, 'paused');
   assert.ok(!(await b.get(`/api/clubs/${club.id}/games`)).body.active.some((g) => g.id === self.id));
+  assert.equal((await a.post(`/api/games/${self.id}/move`, { san: 'e5' })).status, 409);
+
+  // A spectator keeps watching the same game id across stop/resume.
+  const socket = ioClient(base, { extraHeaders: { Cookie: b.cookie }, transports: ['websocket'] });
+  await new Promise((resolve) => socket.emit('watch:game', self.id, resolve));
+  const seen = new Promise((resolve) => socket.on('game', resolve));
+  assert.equal((await b.post(`/api/games/${self.id}/resume`, { moves: ['e4', 'e5'] })).status, 403);
+  assert.equal((await a.post(`/api/games/${self.id}/resume`, { moves: ['e4', 'e4'] })).status, 400);
+  const resumed = (await a.post(`/api/games/${self.id}/resume`, { moves: ['e4', 'e5', 'Nf3'] })).body.game;
+  assert.equal(resumed.id, self.id);
+  assert.equal(resumed.status, 'active');
+  assert.deepEqual(resumed.moves, ['e4', 'e5', 'Nf3']);
+  assert.deepEqual((await seen).moves, ['e4', 'e5', 'Nf3']);
+  socket.close();
+  assert.equal((await a.post(`/api/games/${self.id}/resume`)).status, 409);
 });
 
 test('sockets reject unauthenticated connections', async () => {

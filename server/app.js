@@ -401,9 +401,10 @@ export function createServer({ dbFile = path.join(ROOT, 'data', 'chessclub.db') 
       if (g.created_by !== me.id && g.invited_id !== me.id) throw new HttpError(403, 'Not your challenge');
       updateGame(g.id, { status: 'aborted', termination: g.created_by === me.id ? 'cancelled' : 'declined' });
     } else if (g.status === 'active' && BROADCAST_MODES.has(g.mode)) {
-      // Stopping a broadcast: the game continues privately on the broadcaster's device.
+      // Stopping a broadcast pauses it: the game continues privately on the broadcaster's device and
+      // can be resumed under the same id, so spectators already watching pick it up again.
       if (g.created_by !== me.id) throw new HttpError(403, 'Only the broadcaster can stop this broadcast');
-      updateGame(g.id, { status: 'aborted', termination: 'broadcast stopped' });
+      updateGame(g.id, { status: 'paused', draw_offer_by: null });
     } else if (g.status === 'active' && g.mode === 'online' && JSON.parse(g.moves).length < 2) {
       if (g.white_id !== me.id && g.black_id !== me.id) throw new HttpError(403, 'Not your game');
       updateGame(g.id, { status: 'aborted', termination: 'aborted' });
@@ -476,6 +477,30 @@ export function createServer({ dbFile = path.join(ROOT, 'data', 'chessclub.db') 
     const result = req.body?.result;
     if (!RESULTS.has(result)) throw new HttpError(400, 'Result must be 1-0, 0-1 or 1/2-1/2');
     updateGame(g.id, { status: 'finished', result, termination: cleanText(req.body?.termination, 60) || 'result declared' });
+    res.json({ game: notify(g.id) });
+  });
+
+  // Broadcaster-only: resume a paused broadcast with the moves played privately in the meantime.
+  app.post('/api/games/:id/resume', (req, res) => {
+    const g = loadGame(req);
+    if (!BROADCAST_MODES.has(g.mode)) throw new HttpError(400, 'Only broadcast games can be resumed');
+    if (g.created_by !== req.user.id) throw new HttpError(403, 'Only the broadcaster can resume this broadcast');
+    if (g.status !== 'paused') throw new HttpError(409, 'This broadcast is not paused');
+    const moves = Array.isArray(req.body?.moves) ? req.body.moves : JSON.parse(g.moves);
+    let chess;
+    try {
+      chess = replay(g.start_fen, moves);
+    } catch {
+      throw new HttpError(400, 'Move list contains an illegal move');
+    }
+    const over = gameOverInfo(chess);
+    updateGame(g.id, {
+      status: over ? 'finished' : 'active',
+      moves: JSON.stringify(chess.history()),
+      fen: chess.fen(),
+      result: over ? over.result : '*',
+      termination: over ? over.termination : null,
+    });
     res.json({ game: notify(g.id) });
   });
 
