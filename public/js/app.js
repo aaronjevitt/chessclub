@@ -4,6 +4,7 @@ import { renderMiniBoard } from './board.js';
 import { mountGameView, MODE_LABEL, resultText, computerName } from './game-view.js';
 import { listLocalGames, saveLocalGame, newLocalId } from './local-games.js';
 import { LEVELS } from './engine.js';
+import { mountTvView } from './tv-view.js';
 
 const START_FEN = 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1';
 const main = document.getElementById('main');
@@ -297,7 +298,8 @@ async function clubView(clubId) {
     clear(liveSection,
       el('h2', {}, 'Live games ', el('span', { class: 'count' }, String(data.active.length))),
       data.active.length
-        ? el('div', { class: 'game-grid' }, data.active.map((g) => gameCard(g)))
+        // Oldest first, so cards keep their place as moves come in.
+        ? el('div', { class: 'game-grid live-grid' }, [...data.active].sort((a, b) => a.id - b.id).map((g) => gameCard(g)))
         : el('p', { class: 'muted' }, 'No games in progress. Challenge someone, or broadcast a game against the computer or over the board.'));
     clear(challengeSection,
       el('h2', {}, 'Open challenges'),
@@ -344,6 +346,7 @@ async function clubView(clubId) {
         el('div', { class: 'muted small' },
           club.isPublic ? 'Public club' : 'Private club', ' · Invite code: ', el('code', { class: 'invite' }, club.inviteCode))),
       el('div', { class: 'row' },
+        el('a', { href: `#/tv/${club.id}`, class: 'btn' }, '📺 Projector view'),
         el('a', { href: `#/new?club=${club.id}`, class: 'btn primary' }, '📡 Broadcast a game'),
         membership.role !== 'owner' ? el('button', {
           type: 'button',
@@ -527,6 +530,7 @@ async function route() {
     let viewCleanup = null;
     if (parts[0] === 'login' || parts[0] === 'register') authView(parts[0]);
     else if (parts[0] === 'club' && parts[1]) viewCleanup = await clubView(Number(parts[1]));
+    else if (parts[0] === 'tv' && parts[1]) viewCleanup = await mountTvView(main, Number(parts[1]));
     else if (parts[0] === 'game' && parts[1]) viewCleanup = mountGameView(main, { user, kind: 'server', id: Number(parts[1]), navigate });
     else if (parts[0] === 'local' && parts[1]) viewCleanup = mountGameView(main, { user, kind: 'local', id: parts[1], navigate });
     else if (parts[0] === 'new') await newGameView(params);

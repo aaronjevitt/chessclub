@@ -1,5 +1,5 @@
 import { Chess } from '/vendor/chess.js';
-import { Board, pieceGlyph } from './board.js';
+import { Board, makePiece } from './board.js';
 import { api, getSocket } from './api.js';
 import { el, clear, toast } from './dom.js';
 import { saveLocalGame, getLocalGame, deleteLocalGame, newLocalId } from './local-games.js';
@@ -310,14 +310,14 @@ export function mountGameView(root, { user, kind, id, navigate }) {
     const captured = [];
     let material = 0;
     for (const t of ['q', 'r', 'b', 'n', 'p']) {
-      for (let i = 0; i < startCounts[opp][t] - counts[opp][t]; i++) captured.push(pieceGlyph(t));
+      for (let i = 0; i < startCounts[opp][t] - counts[opp][t]; i++) captured.push(makePiece({ type: t, color: opp }));
       material += (counts[color][t] - counts[opp][t]) * VALUES[t];
     }
     const toMove = state.status === 'active' && chess.turn() === color;
     clear(bar,
       el('span', { class: `turn-dot ${toMove ? 'on' : ''} ${color === 'w' ? 'white' : 'black'}` }),
       el('span', { class: 'player-name' }, name || '—', isYou ? el('span', { class: 'you' }, ' (you)') : null),
-      el('span', { class: `captured ${opp === 'w' ? 'white' : 'black'}` }, captured.join('')),
+      el('span', { class: 'captured' }, captured),
       material > 0 ? el('span', { class: 'material' }, `+${material}`) : null,
     );
   }
@@ -359,8 +359,14 @@ export function mountGameView(root, { user, kind, id, navigate }) {
       whiteTurn = !whiteTurn;
     });
     clear(moveList, rows.length ? rows : el('div', { class: 'muted' }, 'No moves yet'));
+    // Keep the current move visible by scrolling the move list itself; scrollIntoView would also scroll the page.
     const currentEl = moveList.querySelector('.current');
-    if (currentEl) currentEl.scrollIntoView({ block: 'nearest' });
+    if (currentEl) {
+      const top = currentEl.offsetTop;
+      const bottom = top + currentEl.offsetHeight;
+      if (top < moveList.scrollTop) moveList.scrollTop = top;
+      else if (bottom > moveList.scrollTop + moveList.clientHeight) moveList.scrollTop = bottom - moveList.clientHeight;
+    }
   }
 
   function setViewPly(ply) {

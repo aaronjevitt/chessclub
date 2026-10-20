@@ -1,12 +1,7 @@
 // Interactive chessboard: click-to-move or drag-and-drop, legal-move hints, promotion picker.
 
-const GLYPHS = { k: '♚', q: '♛', r: '♜', b: '♝', n: '♞', p: '♟' };
-const TEXT_VS = '︎'; // force text (not emoji) presentation
 const FILES = 'abcdefgh';
-
-export function pieceGlyph(type) {
-  return GLYPHS[type] + TEXT_VS;
-}
+const PIECE_NAMES = { k: 'king', q: 'queen', r: 'rook', b: 'bishop', n: 'knight', p: 'pawn' };
 
 function squaresFor(orientation) {
   const out = [];
@@ -24,15 +19,20 @@ function isLight(square) {
   return (FILES.indexOf(square[0]) + Number(square[1])) % 2 === 1;
 }
 
-function makePiece(piece) {
+/** A piece drawn with the SVG artwork in /pieces (CSS class p-wK, p-bQ, ...). */
+export function makePiece(piece) {
   const el = document.createElement('span');
-  el.className = `piece ${piece.color === 'w' ? 'white' : 'black'}`;
-  el.textContent = pieceGlyph(piece.type);
+  el.className = `piece p-${piece.color}${piece.type.toUpperCase()}`;
+  el.setAttribute('role', 'img');
+  el.setAttribute('aria-label', `${piece.color === 'w' ? 'white' : 'black'} ${PIECE_NAMES[piece.type]}`);
   return el;
 }
 
-/** Read-only board for previews (club view). */
-export function renderMiniBoard(fen, orientation = 'white') {
+/**
+ * Read-only board for previews (club view, projector view).
+ * @param opts.lastMove {from, to} squares to highlight; opts.check square of a king in check
+ */
+export function renderMiniBoard(fen, orientation = 'white', { lastMove = null, check = null } = {}) {
   const el = document.createElement('div');
   el.className = 'board mini';
   const placement = fen.split(' ')[0].split('/');
@@ -50,6 +50,8 @@ export function renderMiniBoard(fen, orientation = 'white') {
   for (const sq of squaresFor(orientation)) {
     const cell = document.createElement('div');
     cell.className = `sq ${isLight(sq) ? 'light' : 'dark'}`;
+    if (lastMove && (lastMove.from === sq || lastMove.to === sq)) cell.classList.add('last');
+    if (check === sq) cell.classList.add('check');
     if (pieces[sq]) cell.appendChild(makePiece(pieces[sq]));
     el.appendChild(cell);
   }
@@ -175,7 +177,6 @@ export class Board {
     ghost.classList.add('ghost');
     const size = this.el.getBoundingClientRect().width / 8;
     ghost.style.width = ghost.style.height = `${size}px`;
-    ghost.style.fontSize = getComputedStyle(pieceEl).fontSize;
     document.body.appendChild(ghost);
     this.drag = { from: sq, ghost, pieceEl, startX: e.clientX, startY: e.clientY, moved: false, wasSelected, size };
     this._positionGhost(e);
