@@ -133,6 +133,7 @@ export function createServer({ dbFile = path.join(ROOT, 'data', 'chessclub.db') 
       createdAt: g.created_at,
       updatedAt: g.updated_at,
       timeControl: timeControlForClient(g),
+      hasAnalysis: !!g.analysis,
       // Remaining time right now; clients count down from when they receive it.
       clock: g.time_control ? (({ running, w, b }) => ({ white: w, black: b, running }))(remainingTime(g)) : null,
     };
@@ -202,6 +203,22 @@ export function createServer({ dbFile = path.join(ROOT, 'data', 'chessclub.db') 
     for (const timer of flagTimers.values()) clearTimeout(timer);
     flagTimers.clear();
   });
+
+  /** Accept only the expected shape for a stored game analysis (see public/js/review.js). */
+  function validateAnalysis(input, moveCount) {
+    const positions = input?.positions;
+    if (!Array.isArray(positions) || positions.length !== moveCount + 1) throw new HttpError(400, 'Analysis does not match the game');
+    const num = (v) => (v === null || v === undefined ? null : Number.isFinite(Number(v)) ? Math.round(Number(v)) : null);
+    const uci = (v) => (typeof v === 'string' && /^[a-h][1-8][a-h][1-8][qrbn]?$/.test(v) ? v : null);
+    return {
+      engine: cleanText(input.engine, 60),
+      timeMs: num(input.timeMs),
+      positions: positions.map((p) => ({
+        best: uci(p?.best), cp: num(p?.cp), mate: num(p?.mate),
+        alt: uci(p?.alt), cp2: num(p?.cp2), mate2: num(p?.mate2),
+      })),
+    };
+  }
 
   function isParticipant(user, g) {
     return [g.white_id, g.black_id, g.created_by, g.invited_id].includes(user.id);
@@ -579,6 +596,22 @@ export function createServer({ dbFile = path.join(ROOT, 'data', 'chessclub.db') 
     if (!RESULTS.has(result)) throw new HttpError(400, 'Result must be 1-0, 0-1 or 1/2-1/2');
     updateGameWithClock(g, { status: 'finished', result, termination: cleanText(req.body?.termination, 60) || 'result declared' });
     res.json({ game: notify(g.id) });
+  });
+
+  // Game review: the engine analysis is computed in a viewer's browser and stored so everyone sees the same review.
+  app.get('/api/games/:id/analysis', (req, res) => {
+    const g = loadGame(req);
+    res.json({ analysis: g.analysis ? JSON.parse(g.analysis) : null });
+  });
+
+  app.post('/api/games/:id/analysis', (req, res) => {
+    const g = loadGame(req);
+    if (g.status !== 'finished') throw new HttpError(409, 'Only finished games can be reviewed');
+    // The first analysis stored wins; players in the game may replace it.
+    if (g.analysis && !isParticipant(req.user, g)) return res.json({ analysis: JSON.parse(g.analysis) });
+    const analysis = validateAnalysis(req.body?.analysis, JSON.parse(g.moves).length);
+    updateGame(g.id, { analysis: JSON.stringify(analysis) });
+    res.json({ analysis });
   });
 
   // Broadcaster-only: resume a paused broadcast with the moves played privately in the meantime.

@@ -73,6 +73,7 @@ export class Board {
     this.lastMove = null;
     this.selected = null;
     this.drag = null;
+    this.annotations = { arrows: [], badges: [] };
 
     this.el = document.createElement('div');
     this.el.className = 'board';
@@ -134,8 +135,72 @@ export class Board {
         c.textContent = sq[0];
         cell.appendChild(c);
       }
+      const badge = this.annotations.badges.find((b) => b.square === sq);
+      if (badge) {
+        const b = document.createElement('span');
+        b.className = 'sq-badge';
+        b.style.background = badge.color;
+        b.textContent = badge.symbol;
+        b.title = badge.title || '';
+        cell.appendChild(b);
+      }
       this.el.appendChild(cell);
     });
+    if (this.annotations.arrows.length) this.el.appendChild(this._arrowLayer());
+  }
+
+  /**
+   * Arrows and square badges drawn over the board (used by game review). Takes effect on the next render.
+   * @param arrows [{from, to, color}]; badges [{square, symbol, color, title}]
+   */
+  setAnnotations({ arrows = [], badges = [] } = {}) {
+    this.annotations = { arrows, badges };
+  }
+
+  _arrowLayer() {
+    const NS = 'http://www.w3.org/2000/svg';
+    const svg = document.createElementNS(NS, 'svg');
+    svg.setAttribute('class', 'arrows');
+    svg.setAttribute('viewBox', '0 0 800 800');
+    const center = (sq) => {
+      const f = FILES.indexOf(sq[0]);
+      const r = Number(sq[1]);
+      const col = this.orientation === 'white' ? f : 7 - f;
+      const row = this.orientation === 'white' ? 8 - r : r - 1;
+      return [col * 100 + 50, row * 100 + 50];
+    };
+    this.annotations.arrows.forEach(({ from, to, color }, i) => {
+      const marker = document.createElementNS(NS, 'marker');
+      marker.setAttribute('id', `arrowhead-${i}`);
+      marker.setAttribute('viewBox', '0 0 10 10');
+      marker.setAttribute('refX', '5');
+      marker.setAttribute('refY', '5');
+      marker.setAttribute('markerWidth', '3.2');
+      marker.setAttribute('markerHeight', '3.2');
+      marker.setAttribute('orient', 'auto');
+      const head = document.createElementNS(NS, 'path');
+      head.setAttribute('d', 'M0,0 L10,5 L0,10 z');
+      head.setAttribute('fill', color);
+      marker.appendChild(head);
+      svg.appendChild(marker);
+      const [x1, y1] = center(from);
+      const [x2, y2] = center(to);
+      // Stop short of the target square's centre so the head sits on the square.
+      const len = Math.hypot(x2 - x1, y2 - y1);
+      const k = (len - 22) / len;
+      const line = document.createElementNS(NS, 'line');
+      line.setAttribute('x1', x1);
+      line.setAttribute('y1', y1);
+      line.setAttribute('x2', x1 + (x2 - x1) * k);
+      line.setAttribute('y2', y1 + (y2 - y1) * k);
+      line.setAttribute('stroke', color);
+      line.setAttribute('stroke-width', '16');
+      line.setAttribute('stroke-linecap', 'round');
+      line.setAttribute('opacity', '0.85');
+      line.setAttribute('marker-end', `url(#arrowhead-${i})`);
+      svg.appendChild(line);
+    });
+    return svg;
   }
 
   _kingSquare(color) {

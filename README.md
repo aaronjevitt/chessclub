@@ -11,6 +11,8 @@ A web-based chess club. Members create an account, start or join clubs, and play
 
 Computer, self-play and over-the-board games are **private by default** and live only in your browser. At any point you can **broadcast** one to a club — the server then validates every move and relays it live to spectators — and you can stop broadcasting at any time to continue privately.
 
+**Game review** — after a game, Stockfish analyses every position in the browser (about a third of a second each) and the review is saved so the whole club sees the same one: move labels (Book, Brilliant, Great, Best, Excellent, Good, Inaccuracy, Mistake, Miss, Blunder), accuracy for both players, the opening name, a clickable evaluation graph, best-move arrows and badges on the board, and jumps between key moments. **Retry mistakes** replays the position before each of your mistakes so you can find a better move (Stockfish checks your answer). Winning chances and accuracy follow lichess's published formulas; Brilliant, Great and Miss are approximations of chess.com's definitions, which aren't public.
+
 The **club view** shows every live game in the club as a board that updates in real time, open challenges, recently finished games and the member list. **Projector view** (`#/tv/<club id>`) shows all live club games full-screen, sized to fill the display — leave it running on a projector or TV at club night. Every game can be reviewed move by move (← / → keys) and exported as PGN. When setting up a game or challenge you can turn on an **evaluation bar**: full-strength Stockfish assesses the position on the board (following move review too), and everyone watching the game — including the projector view — sees it.
 
 ## Running
@@ -56,6 +58,8 @@ public/
 ## Credits
 
 Chess piece artwork: "Cburnett" set by Colin M. L. Burnett, used under the BSD license.
+
+Opening names: [lichess-org/chess-openings](https://github.com/lichess-org/chess-openings) (CC0), compiled into `public/data/openings.json` by `scripts/build-openings.mjs`.
 
 [Stockfish](https://stockfishchess.org/) is free software under the GNU GPL v3; the app serves the unmodified WebAssembly build from the [`stockfish`](https://github.com/nmrugg/stockfish.js) npm package (by Nathan Rugg and Chess.com), whose source is available at that link. Its license text is served at `/vendor/stockfish/COPYING.txt`.
 

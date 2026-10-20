@@ -8,6 +8,10 @@ import { gameElo, isApproximate } from './bots.js';
 import { Evaluator, createEvalBar } from './eval-bar.js';
 import { formatClock, tcDescription } from './time-control.js';
 import { timeoutResult } from './clock-rules.js';
+import { reviewGame, whiteWinPercent, RETRY_LABELS, LABELS } from './review.js';
+import { loadOpeningBook, labelIcon, explainMove, renderSummary, renderGraph } from './review-view.js';
+
+const ANALYSIS_MS = 350;
 
 export const MODE_LABEL = { online: 'Online', computer: 'vs Computer', self: 'Self-play', otb: 'Over the board' };
 const BROADCAST_MODES = new Set(['computer', 'self', 'otb']);
@@ -64,6 +68,10 @@ export function mountGameView(root, { user, kind, id, navigate }) {
   let pending = false;
   let thinking = false;
   let bot = null;
+  // Game review: {data (from reviewGame), positions, retry} once open; `analysing` while Stockfish runs.
+  let review = null;
+  let analysing = null;
+  let reviewEngine = null;
   let engineRequest = 0;
   let evaluator = null;
   let orientationSet = false;
@@ -85,15 +93,18 @@ export function mountGameView(root, { user, kind, id, navigate }) {
   const nav = el('div', { class: 'nav-buttons' });
   const controls = el('div', { class: 'controls' });
   const broadcast = el('div', { class: 'broadcast-panel' });
+  const reviewPanel = el('div', { class: 'review-panel' });
 
   clear(root, el('div', { class: 'game-layout' },
     el('div', { class: 'board-col' }, topBar, el('div', { class: 'board-row' }, evalBar.el, boardWrap), bottomBar),
-    el('aside', { class: 'side-panel card' }, meta, status, notice, moveList, nav, controls, broadcast),
+    el('aside', { class: 'side-panel card' }, meta, status, notice, reviewPanel, moveList, nav, controls, broadcast),
   ));
 
   const board = new Board(boardWrap, {
-    canMove: (color) => viewPly === null && !pending && !thinking && canMoveColor(color),
-    onMove: (from, to, promotion) => makeMove({ from, to, promotion }),
+    canMove: (color) => (review?.retry
+      ? !review.retry.done && !review.retry.busy && !review.retry.solved && color === review.retry.color
+      : viewPly === null && !pending && !thinking && canMoveColor(color)),
+    onMove: (from, to, promotion) => (review?.retry ? retryMove({ from, to, promotion }) : makeMove({ from, to, promotion })),
   });
 
   // ---------- roles ----------
@@ -238,6 +249,7 @@ export function mountGameView(root, { user, kind, id, navigate }) {
   }
 
   async function takeback() {
+    closeReview();
     // Against the computer, take back the player's last move too, so it is their turn again.
     let count = 1;
     if (state.mode === 'computer') {
@@ -423,6 +435,8 @@ export function mountGameView(root, { user, kind, id, navigate }) {
   function statusText(chess) {
     if (state.status === 'waiting') return 'Waiting for an opponent to accept the challenge';
     if (state.status === 'paused') return 'Broadcast paused — it will continue here if the broadcaster resumes it';
+    if (review?.retry) return 'Retry mistakes';
+    if (review) return `Game review — ${resultText(state) || ''}`;
     const res = resultText(state);
     if (res) return res;
     if (viewPly !== null) return `Reviewing move ${viewPly} of ${state.moves.length}`;
@@ -449,11 +463,12 @@ export function mountGameView(root, { user, kind, id, navigate }) {
       }
       const ply = i + 1;
       const current = viewPly === null ? ply === state.moves.length : ply === viewPly;
+      const label = review && !review.retry ? review.data.moves[i]?.label : null;
       row.appendChild(el('button', {
         type: 'button',
         class: `move ${current ? 'current' : ''}`,
         onclick: () => setViewPly(ply === state.moves.length ? null : ply),
-      }, san));
+      }, label && label !== 'good' && label !== 'excellent' ? labelIcon(label, { small: true }) : null, san));
       if (!whiteTurn) num++;
       whiteTurn = !whiteTurn;
     });
@@ -515,6 +530,10 @@ export function mountGameView(root, { user, kind, id, navigate }) {
           button('0-1', () => declareResult('0-1'))));
       }
     }
+    if (canReview()) {
+      if (review) items.push(button('Close review', () => { closeReview(); viewPly = null; render(); }, { class: 'btn' }));
+      else items.push(button(analysing ? 'Analysing…' : state.hasAnalysis || state.analysis ? '⭐ Show review' : '⭐ Game review', openReview, { class: 'btn primary', disabled: !!analysing }));
+    }
     items.push(button('Copy PGN', async () => {
       try {
         await navigator.clipboard.writeText(toPgn(state));
@@ -560,8 +579,257 @@ export function mountGameView(root, { user, kind, id, navigate }) {
       el('div', { class: 'row' }, select, button('📡 Broadcast', () => startBroadcast(select.value), { class: 'btn primary' })));
   }
 
+  // ---------- game review ----------
+
+  const canReview = () => state.status === 'finished' && state.moves.length > 0;
+
+  async function openReview() {
+    if (analysing) return;
+    let analysis = kind === 'local' ? state.analysis : null;
+    try {
+      if (kind === 'server' && state.hasAnalysis) analysis = (await api(`/games/${state.id}/analysis`)).analysis;
+    } catch {
+      analysis = null;
+    }
+    if (!analysis || analysis.positions?.length !== state.moves.length + 1) {
+      analysis = await runAnalysis();
+      if (!analysis) return;
+      if (kind === 'local') {
+        state.analysis = analysis;
+        persistLocal();
+      } else {
+        try {
+          analysis = (await api(`/games/${state.id}/analysis`, { method: 'POST', body: { analysis } })).analysis;
+          state.hasAnalysis = true;
+        } catch (err) {
+          toast(`Review not saved: ${err.message}`, 'error');
+        }
+      }
+    }
+    const book = await loadOpeningBook();
+    if (destroyed) return;
+    review = {
+      positions: analysis.positions,
+      data: reviewGame({ Chess, startFen: state.startFen, moves: state.moves, positions: analysis.positions, book }),
+      retry: null,
+    };
+    viewPly = 0;
+    render();
+  }
+
+  /** Analyse every position with Stockfish (two best lines each), showing progress. Null if cancelled. */
+  async function runAnalysis() {
+    analysing = { done: 0, total: state.moves.length + 1, cancelled: false };
+    render();
+    reviewEngine ||= new Engine();
+    const positions = [];
+    try {
+      for (let i = 0; i <= state.moves.length; i++) {
+        positions.push(await reviewEngine.analysePosition({ startFen: state.startFen, moves: state.moves.slice(0, i), timeMs: ANALYSIS_MS }));
+        if (destroyed || analysing.cancelled) return null;
+        analysing.done = i + 1;
+        renderReviewPanel();
+      }
+    } catch (err) {
+      toast(`Analysis failed: ${err.message}`, 'error');
+      return null;
+    } finally {
+      analysing = null;
+      if (!destroyed) render();
+    }
+    return { engine: reviewEngine.usingFallback ? 'built-in' : 'Stockfish 19 lite', timeMs: ANALYSIS_MS, positions };
+  }
+
+  function closeReview() {
+    if (analysing) analysing.cancelled = true;
+    review = null;
+  }
+
+  function reviewedMove(ply) {
+    return ply > 0 ? review.data.moves[ply - 1] : null;
+  }
+
+  /** Board arrows/badges for the move just played at `ply`: its label, and an arrow for the best move. */
+  function reviewAnnotations(ply) {
+    const m = reviewedMove(ply);
+    if (!m) return {};
+    const info = LABELS[m.label];
+    const arrows = [];
+    if (m.bestUci && !['best', 'book', 'brilliant', 'great'].includes(m.label)) {
+      arrows.push({ from: m.bestUci.slice(0, 2), to: m.bestUci.slice(2, 4), color: '#4a9e5c' });
+    }
+    return { arrows, badges: [{ square: m.to, symbol: info.symbol, color: info.color, title: info.name }] };
+  }
+
+  function jumpKeyMoment(direction) {
+    const current = viewPly ?? state.moves.length;
+    const list = review.data.keyMoments;
+    const target = direction > 0 ? list.find((p) => p > current) : [...list].reverse().find((p) => p < current);
+    if (target !== undefined) setViewPly(target);
+  }
+
+  // ---------- retry mistakes ----------
+
+  /** Whose mistakes to retry: the viewer's own side if they played, otherwise both sides. */
+  function retryColors() {
+    const mine = myOnlineColor();
+    if (mine) return [mine];
+    if (state.mode === 'computer') return [state.meta.playerColor === 'black' ? 'b' : 'w'];
+    return ['w', 'b'];
+  }
+
+  function startRetry() {
+    const colors = retryColors();
+    const list = review.data.moves.filter((m) => RETRY_LABELS.has(m.label) && colors.includes(m.color) && m.bestUci).map((m) => m.ply);
+    if (!list.length) {
+      toast('No mistakes to retry — nicely played!');
+      return;
+    }
+    review.retry = { list, index: 0, found: 0 };
+    loadRetry();
+  }
+
+  function loadRetry() {
+    const r = review.retry;
+    const ply = r.list[r.index];
+    const m = reviewedMove(ply);
+    Object.assign(r, {
+      ply, move: m, color: m.color, base: buildChess(state, ply - 1), attempt: null,
+      solved: false, busy: false, feedback: null, showSolution: false, counted: false,
+    });
+    board.orientation = m.color === 'w' ? 'white' : 'black';
+    render();
+  }
+
+  async function retryMove(move) {
+    const r = review.retry;
+    const chess = new Chess(r.base.fen());
+    let played;
+    try {
+      played = chess.move(move);
+    } catch {
+      return render();
+    }
+    r.attempt = chess;
+    const uci = played.from + played.to + (played.promotion || '');
+    if (uci === r.move.uci) {
+      r.feedback = { kind: 'wrong', text: `${played.san} is the move you played in the game. Try something else.` };
+      render();
+      return resetAttempt();
+    }
+    if (uci === r.move.bestUci) return solveRetry(`${played.san} is the best move!`);
+    // Not the engine's top choice: accept it if it keeps nearly all the winning chances.
+    r.busy = true;
+    r.feedback = { kind: 'checking', text: 'Checking…' };
+    render();
+    reviewEngine ||= new Engine();
+    const fenMoves = [...state.moves.slice(0, r.ply - 1), played.san];
+    const after = await reviewEngine.analysePosition({ startFen: state.startFen, moves: fenMoves, timeMs: 500 });
+    if (!review?.retry || review.retry !== r) return;
+    r.busy = false;
+    const mine = (w) => (r.color === 'w' ? w : 100 - w);
+    const loss = mine(whiteWinPercent(review.positions[r.ply - 1])) - mine(whiteWinPercent(after));
+    if (loss < 5) return solveRetry(`${played.san} works! The engine's top move was ${r.move.bestSan}.`);
+    r.feedback = { kind: 'wrong', text: `${played.san} isn't it. Try again.` };
+    render();
+    resetAttempt();
+  }
+
+  function resetAttempt() {
+    const r = review.retry;
+    setTimeout(() => {
+      if (review?.retry !== r || r.solved) return;
+      r.attempt = null;
+      render();
+    }, 1100);
+  }
+
+  function solveRetry(text) {
+    const r = review.retry;
+    if (!r.counted && !r.showSolution) r.found++;
+    r.counted = true;
+    r.solved = true;
+    r.feedback = { kind: 'correct', text };
+    render();
+  }
+
+  function showSolution() {
+    const r = review.retry;
+    const chess = new Chess(r.base.fen());
+    chess.move({ from: r.move.bestUci.slice(0, 2), to: r.move.bestUci.slice(2, 4), promotion: r.move.bestUci[4] });
+    Object.assign(r, { attempt: chess, showSolution: true, solved: true, counted: true, feedback: { kind: 'solution', text: `The best move was ${r.move.bestSan}.` } });
+    render();
+  }
+
+  function nextRetry() {
+    const r = review.retry;
+    if (r.index + 1 < r.list.length) {
+      r.index++;
+      loadRetry();
+    } else {
+      r.done = true;
+      render();
+    }
+  }
+
+  function exitRetry() {
+    review.retry = null;
+    orientationSet = false;
+    render();
+  }
+
+  function renderReviewPanel() {
+    if (analysing) {
+      const pct = Math.round((analysing.done / analysing.total) * 100);
+      return clear(reviewPanel, el('div', { class: 'review-progress' },
+        el('div', {}, `Analysing with Stockfish… ${analysing.done}/${analysing.total} positions`),
+        el('div', { class: 'progress' }, el('div', { class: 'progress-bar', style: `width:${pct}%` })),
+        button('Cancel', () => {
+          analysing.cancelled = true;
+        }, { class: 'btn small ghost' })));
+    }
+    if (!review) return clear(reviewPanel);
+    const r = review.retry;
+    if (r) {
+      if (r.done) {
+        return clear(reviewPanel, el('div', { class: 'retry-box' },
+          el('strong', {}, `Done! You found ${r.found} of ${r.list.length}.`),
+          el('div', { class: 'row' }, button('Back to review', exitRetry, { class: 'btn primary' }))));
+      }
+      const side = r.color === 'w' ? 'White' : 'Black';
+      return clear(reviewPanel, el('div', { class: 'retry-box' },
+        el('div', { class: 'muted small' }, `Retry ${r.index + 1} of ${r.list.length}`),
+        el('div', {}, labelIcon(r.move.label, { small: true }), ` In the game, ${side} played `, el('strong', {}, r.move.san), `. Find a better move for ${side}.`),
+        r.feedback ? el('div', { class: `retry-feedback ${r.feedback.kind}` }, r.feedback.text) : null,
+        el('div', { class: 'row' },
+          !r.solved ? button('Show solution', showSolution, { class: 'btn' }) : null,
+          button(r.index + 1 < r.list.length ? (r.solved ? 'Next ▶' : 'Skip ▶') : 'Finish', nextRetry, { class: r.solved ? 'btn primary' : 'btn' }),
+          button('Exit', exitRetry, { class: 'btn ghost' }))));
+    }
+    const current = viewPly ?? state.moves.length;
+    const m = reviewedMove(current);
+    clear(reviewPanel,
+      renderSummary(review.data, state),
+      renderGraph(review.data, current, (ply) => setViewPly(ply)),
+      el('div', { class: 'review-explain' },
+        m ? [labelIcon(m.label), ' ', explainMove(m, review.positions)] : 'Starting position. Step through the moves, or jump to the key moments.'),
+      el('div', { class: 'row review-actions' },
+        button('◀ Key moment', () => jumpKeyMoment(-1), { class: 'btn small' }),
+        button('Key moment ▶', () => jumpKeyMoment(1), { class: 'btn small' }),
+        button('🎯 Retry mistakes', startRetry, { class: 'btn small primary' })));
+  }
+
   /** Evaluate the position on the board (live or under review) when the game has the eval bar enabled. */
   function updateEvalBar(ply) {
+    if (review && !review.retry) {
+      // During review the analysis already has every position's evaluation.
+      evalBar.el.hidden = false;
+      evalBar.setOrientation(board.orientation);
+      const p = review.positions[ply];
+      evalBar.el.dataset.key = `review:${ply}`;
+      evalBar.set({ cp: p.cp, mate: p.mate });
+      return;
+    }
     evalBar.el.hidden = !state.meta?.evalBar;
     if (!state.meta?.evalBar) return;
     evalBar.setOrientation(board.orientation);
@@ -596,9 +864,20 @@ export function mountGameView(root, { user, kind, id, navigate }) {
       board.orientation = orient === 'w' ? 'white' : 'black';
       orientationSet = true;
     }
-    const history = chess.history({ verbose: true });
-    const last = history[history.length - 1];
-    board.setPosition(chess, last ? { from: last.from, to: last.to } : null);
+    if (review?.retry && !review.retry.done) {
+      // Retry mode: the position before the mistake, plus the player's attempt (or the solution).
+      const r = review.retry;
+      const shown = r.attempt || r.base;
+      const h = shown.history({ verbose: true }).at(-1);
+      const solution = r.showSolution ? [{ from: r.move.bestUci.slice(0, 2), to: r.move.bestUci.slice(2, 4), color: '#4a9e5c' }] : [];
+      board.setAnnotations({ arrows: r.attempt ? [] : solution });
+      board.setPosition(shown, r.attempt && h ? { from: h.from, to: h.to } : null);
+    } else {
+      board.setAnnotations(review ? reviewAnnotations(ply) : {});
+      const history = chess.history({ verbose: true });
+      const last = history[history.length - 1];
+      board.setPosition(chess, last ? { from: last.from, to: last.to } : null);
+    }
     updateEvalBar(ply);
 
     const bottomColor = board.orientation === 'white' ? 'w' : 'b';
@@ -639,6 +918,7 @@ export function mountGameView(root, { user, kind, id, navigate }) {
       button('⏭', () => setViewPly(null), { class: 'btn ghost', title: 'Latest move' }));
     renderControls();
     renderBroadcastPanel();
+    renderReviewPanel();
 
     const myTurn = live && state.status === 'active' && state.mode === 'online' && canMoveColor(chess.turn());
     document.title = myTurn ? '● Your move — Chess Club' : 'Chess Club';
@@ -698,6 +978,8 @@ export function mountGameView(root, { user, kind, id, navigate }) {
     destroyed = true;
     evaluator?.destroy();
     bot?.terminate();
+    reviewEngine?.terminate();
+    if (analysing) analysing.cancelled = true;
     clearInterval(clockTimer);
     stopEngine();
     window.removeEventListener('keydown', onKey);

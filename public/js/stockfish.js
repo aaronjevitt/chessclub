@@ -48,16 +48,22 @@ class StockfishWorker {
     this.worker?.postMessage(command);
   }
 
-  /** Run one search (searches are queued); resolves with {bestmove, score} — score relative to the side to move. */
+  /**
+   * Run one search (searches are queued). Resolves with {bestmove, score, lines}: score is the main
+   * line's, lines[k] = {score, move} for each MultiPV line; scores are relative to the side to move.
+   */
   search(setup, go) {
     const run = () => new Promise((resolve) => {
-      let score = null;
+      const lines = [];
       const onLine = (line) => {
         if (line.startsWith('info') && line.includes(' score ') && !line.includes(' upperbound') && !line.includes(' lowerbound')) {
-          score = parseScore(line) || score;
+          const score = parseScore(line);
+          const k = Number(line.match(/ multipv (\d+)/)?.[1] || 1) - 1;
+          const move = line.match(/ pv (\S+)/)?.[1] || lines[k]?.move;
+          if (score) lines[k] = { score, move };
         } else if (line.startsWith('bestmove')) {
           this.listeners.delete(onLine);
-          resolve({ bestmove: line.split(' ')[1], score });
+          resolve({ bestmove: line.split(' ')[1], score: lines[0]?.score || null, lines });
         }
       };
       this.listeners.add(onLine);
@@ -169,8 +175,8 @@ export class Engine {
       }
     }
     const setup = weak
-      ? ['setoption name UCI_LimitStrength value false', 'setoption name Skill Level value 0']
-      : ['setoption name Skill Level value 20', 'setoption name UCI_LimitStrength value true', `setoption name UCI_Elo value ${elo}`];
+      ? ['setoption name MultiPV value 1', 'setoption name UCI_LimitStrength value false', 'setoption name Skill Level value 0']
+      : ['setoption name MultiPV value 1', 'setoption name Skill Level value 20', 'setoption name UCI_LimitStrength value true', `setoption name UCI_Elo value ${elo}`];
     setup.push(positionCommand(startFen, chess));
     const depth = 1 + Math.round(((elo - 400) / (STOCKFISH_MIN_ELO - 400)) * 4);
     const go = weak ? `go depth ${depth} movetime ${Math.round(timeMs)}` : `go movetime ${Math.round(timeMs)}`;
@@ -189,11 +195,45 @@ export class Engine {
       const data = await this.fallback.request({ type: 'eval', startFen, moves, timeMs });
       return { cp: data.cp, mate: data.mate };
     }
-    const setup = ['setoption name UCI_LimitStrength value false', 'setoption name Skill Level value 20', positionCommand(startFen, chess)];
+    const setup = ['setoption name MultiPV value 1', 'setoption name UCI_LimitStrength value false', 'setoption name Skill Level value 20', positionCommand(startFen, chess)];
     const { score } = await this.stockfish.search(setup, `go movetime ${Math.round(timeMs)}`);
     if (!score) return null;
     if (score.mate !== null) return { cp: sign * Math.sign(score.mate) * 100000, mate: sign * score.mate };
     return { cp: sign * score.cp, mate: null };
+  }
+
+  /**
+   * Full-strength analysis of the position after `moves`, from White's point of view, with the two best
+   * lines: {best, cp, mate, alt, cp2, mate2} (the shape game review stores per position).
+   */
+  async analysePosition({ startFen, moves, timeMs = 400 }) {
+    const chess = replay(startFen, moves);
+    const sign = chess.turn() === 'w' ? 1 : -1;
+    const empty = { best: null, cp: 0, mate: null, alt: null, cp2: null, mate2: null };
+    if (chess.isCheckmate()) return { ...empty, cp: -sign * 100000, mate: 0 };
+    if (chess.isDraw()) return empty;
+    const white = (score) => (score.mate !== null
+      ? { cp: null, mate: sign * score.mate }
+      : { cp: sign * score.cp, mate: null });
+    if ((await this._backend()) === 'builtin') {
+      const data = await this.fallback.request({ type: 'move', startFen, moves, level: 5, timeMs });
+      const mate = Math.abs(data.score) > 99000;
+      return {
+        ...empty,
+        best: data.move.from + data.move.to + (data.move.promotion || ''),
+        ...(mate ? { cp: null, mate: sign * Math.sign(data.score) * Math.ceil((100000 - Math.abs(data.score)) / 2) } : { cp: sign * data.score }),
+      };
+    }
+    const setup = ['setoption name MultiPV value 2', 'setoption name UCI_LimitStrength value false', 'setoption name Skill Level value 20', positionCommand(startFen, chess)];
+    const { bestmove, lines } = await this.stockfish.search(setup, `go movetime ${Math.round(timeMs)}`);
+    if (!lines[0]) return empty;
+    const main = white(lines[0].score);
+    const alt = lines[1] ? white(lines[1].score) : null;
+    return {
+      best: bestmove && bestmove !== '(none)' ? bestmove : lines[0].move,
+      cp: main.cp, mate: main.mate,
+      alt: lines[1]?.move || null, cp2: alt ? alt.cp : null, mate2: alt ? alt.mate : null,
+    };
   }
 
   /** Default thinking time for a bot of this strength when not on the clock. */
