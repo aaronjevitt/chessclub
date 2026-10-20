@@ -419,3 +419,47 @@ html { touch-action: manipulation; }
 .retry-feedback.solution { background: color-mix(in srgb, #5b8bb0 20%, transparent); }
 .retry-feedback.checking { color: var(--muted); }
 .move .label-icon.small { margin-right: .25em; }
+
+/* ---------- game review: summary fold ---------- */
+.review-summary > summary { list-style: none; cursor: pointer; margin: 0; font-weight: inherit; }
+.review-summary > summary::-webkit-details-marker { display: none; }
+.review-summary > summary { display: flex; flex-wrap: wrap; align-items: center; gap: .3rem .5rem; }
+.review-summary > summary .review-opening { flex-basis: 100%; }
+.review-chips { display: flex; gap: .4rem; align-items: center; flex: 1; min-width: 0; }
+.chip { display: inline-flex; align-items: baseline; gap: .35rem; font-size: .8rem; padding: .2rem .55rem; border-radius: 999px; min-width: 0; max-width: 50%; }
+.chip-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.chip strong { flex: none; }
+.chip strong { font-size: .95rem; }
+.chip.white { background: #f4f2ee; color: #2a2825; border: 1px solid var(--border); }
+.chip.black { background: #3a3835; color: #f4f2ee; }
+.toggle-hint { margin-left: auto; white-space: nowrap; }
+.toggle-hint::after { content: 'Details ▾'; }
+.review-summary[open] .toggle-hint::after { content: 'Hide details ▴'; }
+.review-summary[open] .review-chips { visibility: hidden; }
+.review-dock { display: none; }
+
+@media (max-width: 900px) {
+  /* One-line header. */
+  .topbar { padding: .45rem .9rem; gap: .5rem; }
+  .logo { font-size: 1rem; }
+  .logo-mark { font-size: 1.3rem; }
+  #nav { flex-wrap: nowrap; gap: .7rem; font-size: .9rem; }
+  #nav .btn.small { padding: .25rem .5rem; }
+
+  /* Review: pinned bottom bar with the explanation and move stepping; the panel copies are hidden. */
+  .review-dock:not([hidden]) {
+    display: flex; flex-direction: column; gap: .45rem; position: fixed; left: 0; right: 0; bottom: 0; z-index: 30;
+    padding: .6rem .9rem calc(.6rem + env(safe-area-inset-bottom)); background: var(--surface);
+    border-top: 1px solid var(--border); box-shadow: 0 -4px 16px rgba(0, 0, 0, .12);
+  }
+  body.has-review-dock main { padding-bottom: 8.5rem; }
+  .dock-explain { font-weight: 600; font-size: .9rem; line-height: 1.35; min-height: 2.4em; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+  .dock-nav { display: grid; grid-template-columns: 1fr 1.4fr 1.4fr 1fr; gap: .4rem; }
+  .dock-nav .btn { padding: .65rem 0; font-size: 1rem; }
+  body.has-review-dock .review-panel .review-explain,
+  body.has-review-dock .review-panel .review-actions .btn:not(.primary),
+  body.has-review-dock .side-panel > .nav-buttons { display: none; }
+  .review-graph { height: 64px; }
+  body.has-review-dock .status { font-size: .95rem; }
+  .side-panel .move-list { max-height: 180px; }
+}

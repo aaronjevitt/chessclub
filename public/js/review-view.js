@@ -44,12 +44,20 @@ export function explainMove(move, positions) {
   return text;
 }
 
-/** Accuracy and label counts for both players. */
-export function renderSummary(review, state) {
+/**
+ * Accuracy and label counts for both players. The full table folds away (closed by default on small
+ * screens), leaving a one-line summary with the opening and both accuracies.
+ */
+export function renderSummary(review, state, { open = true } = {}) {
   const shown = ['brilliant', 'great', 'best', 'excellent', 'good', 'book', 'inaccuracy', 'mistake', 'miss', 'blunder'];
   const acc = (v) => (v === null ? '—' : v.toFixed(1));
-  return el('div', { class: 'review-summary' },
-    review.opening ? el('div', { class: 'review-opening' }, el('span', { class: 'muted small' }, review.opening.eco), ` ${review.opening.name}`) : null,
+  return el('details', { class: 'review-summary', open },
+    el('summary', {},
+      review.opening ? el('div', { class: 'review-opening' }, el('span', { class: 'muted small' }, review.opening.eco), ` ${review.opening.name}`) : null,
+      el('div', { class: 'review-chips' },
+        el('span', { class: 'chip white' }, el('span', { class: 'chip-name' }, state.white.name || 'White'), el('strong', {}, acc(review.accuracy.w))),
+        el('span', { class: 'chip black' }, el('span', { class: 'chip-name' }, state.black.name || 'Black'), el('strong', {}, acc(review.accuracy.b)))),
+      el('span', { class: 'muted small toggle-hint' })),
     el('div', { class: 'review-table' },
       el('div', {}), el('div', { class: 'review-player' }, state.white.name || 'White'), el('div', { class: 'review-player' }, state.black.name || 'Black'),
       el('div', { class: 'muted small' }, 'Accuracy'),

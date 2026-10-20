@@ -94,10 +94,14 @@ export function mountGameView(root, { user, kind, id, navigate }) {
   const controls = el('div', { class: 'controls' });
   const broadcast = el('div', { class: 'broadcast-panel' });
   const reviewPanel = el('div', { class: 'review-panel' });
+  // Small screens: explanation and move stepping pinned to the bottom, so the board stays in view.
+  const reviewDock = el('div', { class: 'review-dock', hidden: true });
+  const smallScreen = () => window.matchMedia('(max-width: 900px)').matches;
 
   clear(root, el('div', { class: 'game-layout' },
     el('div', { class: 'board-col' }, topBar, el('div', { class: 'board-row' }, evalBar.el, boardWrap), bottomBar),
     el('aside', { class: 'side-panel card' }, meta, status, notice, reviewPanel, moveList, nav, controls, broadcast),
+    reviewDock,
   ));
 
   const board = new Board(boardWrap, {
@@ -615,6 +619,8 @@ export function mountGameView(root, { user, kind, id, navigate }) {
     };
     viewPly = 0;
     render();
+    // On a phone the review button sits below the board; bring the board back into view.
+    if (smallScreen()) window.scrollTo({ top: 0, behavior: 'smooth' });
   }
 
   /** Analyse every position with Stockfish (two best lines each), showing progress. Null if cancelled. */
@@ -788,6 +794,7 @@ export function mountGameView(root, { user, kind, id, navigate }) {
           analysing.cancelled = true;
         }, { class: 'btn small ghost' })));
     }
+    renderReviewDock();
     if (!review) return clear(reviewPanel);
     const r = review.retry;
     if (r) {
@@ -808,8 +815,10 @@ export function mountGameView(root, { user, kind, id, navigate }) {
     }
     const current = viewPly ?? state.moves.length;
     const m = reviewedMove(current);
+    // Remember whether the summary table was folded, across re-renders.
+    const wasOpen = reviewPanel.querySelector('details.review-summary')?.open;
     clear(reviewPanel,
-      renderSummary(review.data, state),
+      renderSummary(review.data, state, { open: wasOpen ?? !smallScreen() }),
       renderGraph(review.data, current, (ply) => setViewPly(ply)),
       el('div', { class: 'review-explain' },
         m ? [labelIcon(m.label), ' ', explainMove(m, review.positions)] : 'Starting position. Step through the moves, or jump to the key moments.'),
@@ -817,6 +826,22 @@ export function mountGameView(root, { user, kind, id, navigate }) {
         button('◀ Key moment', () => jumpKeyMoment(-1), { class: 'btn small' }),
         button('Key moment ▶', () => jumpKeyMoment(1), { class: 'btn small' }),
         button('🎯 Retry mistakes', startRetry, { class: 'btn small primary' })));
+  }
+
+  function renderReviewDock() {
+    const show = !!review && !review.retry && !analysing;
+    reviewDock.hidden = !show;
+    document.body.classList.toggle('has-review-dock', show);
+    if (!show) return clear(reviewDock);
+    const current = viewPly ?? state.moves.length;
+    const m = reviewedMove(current);
+    clear(reviewDock,
+      el('div', { class: 'dock-explain' }, m ? [labelIcon(m.label, { small: true }), explainMove(m, review.positions)] : 'Starting position'),
+      el('div', { class: 'dock-nav' },
+        button('◀◀', () => jumpKeyMoment(-1), { class: 'btn ghost', title: 'Previous key moment' }),
+        button('◀', () => setViewPly(current - 1), { class: 'btn', title: 'Previous move' }),
+        button('▶', () => setViewPly(current + 1), { class: 'btn primary', title: 'Next move' }),
+        button('▶▶', () => jumpKeyMoment(1), { class: 'btn ghost', title: 'Next key moment' })));
   }
 
   /** Evaluate the position on the board (live or under review) when the game has the eval bar enabled. */
@@ -979,6 +1004,7 @@ export function mountGameView(root, { user, kind, id, navigate }) {
     evaluator?.destroy();
     bot?.terminate();
     reviewEngine?.terminate();
+    document.body.classList.remove('has-review-dock');
     if (analysing) analysing.cancelled = true;
     clearInterval(clockTimer);
     stopEngine();
