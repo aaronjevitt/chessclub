@@ -7,7 +7,7 @@ import { MODE_LABEL, resultText } from './game-view.js';
 import { Evaluator, createEvalBar } from './eval-bar.js';
 
 // Finished games stay on screen this long so the room can see the result.
-const SHOW_FINISHED_MS = 3 * 60 * 1000;
+const SHOW_FINISHED_MS = 30 * 1000;
 const GAP = 20;
 // Width of the eval bar plus its gap, relative to the board size (see .tv-board-row in style.css).
 const EVAL_BAR_WIDTH = 0.07;
@@ -67,6 +67,7 @@ export async function mountTvView(root, clubId) {
   document.body.classList.add('tv-mode');
 
   let games = [];
+  const finishedAt = new Map();
   const evaluator = new Evaluator({ timeMs: 700 });
   // One bar per game, reused across re-renders so it animates from its previous value.
   const evalBars = new Map();
@@ -134,13 +135,30 @@ export async function mountTvView(root, clubId) {
     } catch {
       return;
     }
-    const cutoff = Date.now() - SHOW_FINISHED_MS;
-    games = [...data.active, ...data.finished.filter((g) => g.updatedAt > cutoff)]
+    const now = Date.now();
+    for (const g of data.finished) {
+      if (finishedAt.has(g.id)) continue;
+      // Time games that end while on screen by this display's clock; for games that had already
+      // ended when the page loaded, fall back to the server's timestamp.
+      finishedAt.set(g.id, games.some((shown) => shown.id === g.id) ? now : g.updatedAt);
+    }
+    games = [...data.active, ...data.finished.filter((g) => now - finishedAt.get(g.id) < SHOW_FINISHED_MS)]
       // Private games are never shown on a shared screen.
       .filter((g) => g.visibility === 'club')
       // Sort by id so boards keep their place on screen as moves come in.
       .sort((a, b) => a.id - b.id);
     render();
+    scheduleExpiry();
+  }
+
+  // Re-render exactly when the next finished game's time on screen is up.
+  let expiryTimer = null;
+  function scheduleExpiry() {
+    clearTimeout(expiryTimer);
+    const remaining = games
+      .filter((g) => g.status !== 'active')
+      .map((g) => finishedAt.get(g.id) + SHOW_FINISHED_MS - Date.now());
+    if (remaining.length) expiryTimer = setTimeout(load, Math.max(0, Math.min(...remaining)) + 50);
   }
 
   let timer = null;
@@ -161,6 +179,7 @@ export async function mountTvView(root, clubId) {
   return () => {
     clearTimeout(timer);
     clearInterval(tick);
+    clearTimeout(expiryTimer);
     evaluator.destroy();
     window.removeEventListener('resize', layout);
     document.body.classList.remove('tv-mode');
