@@ -7,6 +7,9 @@ import { Server as SocketServer } from 'socket.io';
 import { openDb } from './db.js';
 import { createAuth, hashPassword, verifyPassword } from './auth.js';
 import { START_FEN, replay, gameOverInfo, tryMove, isValidFen } from './chesslogic.js';
+import {
+  TIMED_MODES, parseTimeControl, clampMs, getTimeControl, remainingTime, clockFields, timeoutResult,
+} from './clock.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.join(__dirname, '..');
@@ -85,8 +88,10 @@ export function createServer({ dbFile = path.join(ROOT, 'data', 'chessclub.db') 
     userName: db.prepare('SELECT username FROM users WHERE id = ?'),
     insertGame: db.prepare(`
       INSERT INTO games (club_id, mode, visibility, status, created_by, white_id, black_id, white_name, black_name,
-        creator_color, invited_id, start_fen, fen, moves, result, termination, meta, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`),
+        creator_color, invited_id, start_fen, fen, moves, result, termination, meta, created_at, updated_at,
+        time_control, white_ms, black_ms, turn_started_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`),
+    activeTimedGames: db.prepare("SELECT * FROM games WHERE status = 'active' AND turn_started_at IS NOT NULL"),
   };
 
   function updateGame(id, fields) {
@@ -120,8 +125,76 @@ export function createServer({ dbFile = path.join(ROOT, 'data', 'chessclub.db') 
       meta: JSON.parse(g.meta),
       createdAt: g.created_at,
       updatedAt: g.updated_at,
+      timeControl: timeControlForClient(g),
+      // Remaining time right now; clients count down from when they receive it.
+      clock: g.time_control ? (({ running, w, b }) => ({ white: w, black: b, running }))(remainingTime(g)) : null,
     };
   }
+
+  function timeControlForClient(g) {
+    const tc = getTimeControl(g);
+    return tc ? { initial: tc.initial / 1000, increment: tc.increment / 1000 } : null;
+  }
+
+  function readTimeControl(body, mode) {
+    if (!TIMED_MODES.has(mode)) return null;
+    try {
+      return parseTimeControl(body.timeControl);
+    } catch (err) {
+      throw new HttpError(400, err.message);
+    }
+  }
+
+  /** Update a game that changed state, settling the clocks at the same moment. */
+  function updateGameWithClock(g, fields, { moved = false } = {}) {
+    const status = fields.status ?? g.status;
+    const plies = fields.moves ? JSON.parse(fields.moves).length : JSON.parse(g.moves).length;
+    updateGame(g.id, { ...clockFields(g, { moved, status, plies }), ...fields });
+  }
+
+  // ---------- server-side flag detection ----------
+
+  const flagTimers = new Map();
+
+  /** Arrange for the game to be ended on time even if nobody makes another request. */
+  function scheduleFlag(g) {
+    clearTimeout(flagTimers.get(g.id));
+    flagTimers.delete(g.id);
+    if (g.status !== 'active' || !g.time_control || !g.turn_started_at) return;
+    const { running, w, b } = remainingTime(g);
+    const timer = setTimeout(() => {
+      flagTimers.delete(g.id);
+      checkFlag(g.id);
+    }, (running === 'w' ? w : b) + 25);
+    timer.unref?.();
+    flagTimers.set(g.id, timer);
+  }
+
+  /** End the game if the side to move has run out of time. Returns true if it did. */
+  function checkFlag(gameId) {
+    const g = q.game.get(gameId);
+    if (!g || g.status !== 'active' || !g.time_control || !g.turn_started_at) return false;
+    const { running, w, b } = remainingTime(g);
+    if ((running === 'w' ? w : b) > 0) {
+      scheduleFlag(g);
+      return false;
+    }
+    const { result, termination } = timeoutResult(g.fen, running);
+    updateGame(g.id, {
+      status: 'finished', result, termination, draw_offer_by: null,
+      white_ms: running === 'w' ? 0 : w, black_ms: running === 'b' ? 0 : b, turn_started_at: null,
+    });
+    notify(g.id);
+    return true;
+  }
+
+  for (const g of q.activeTimedGames.all()) {
+    if (!checkFlag(g.id)) scheduleFlag(g);
+  }
+  server.on('close', () => {
+    for (const timer of flagTimers.values()) clearTimeout(timer);
+    flagTimers.clear();
+  });
 
   function isParticipant(user, g) {
     return [g.white_id, g.black_id, g.created_by, g.invited_id].includes(user.id);
@@ -154,6 +227,7 @@ export function createServer({ dbFile = path.join(ROOT, 'data', 'chessclub.db') 
   function notify(gameId) {
     const g = q.game.get(gameId);
     if (!g) return;
+    scheduleFlag(g);
     const state = serializeGame(g);
     io.to(`game:${g.id}`).emit('game', state);
     io.to(`club:${g.club_id}`).emit('club:changed', { clubId: g.club_id });
@@ -173,6 +247,8 @@ export function createServer({ dbFile = path.join(ROOT, 'data', 'chessclub.db') 
     } else if (g.created_by !== user.id) {
       throw new HttpError(403, 'Only the broadcaster can move in this game');
     }
+    // A move that arrives after the flag fell loses on time, whether or not the timer has fired yet.
+    if (checkFlag(g.id)) throw new HttpError(409, 'Time is up');
     const moves = JSON.parse(g.moves);
     const chess = replay(g.start_fen, moves);
     const san = tryMove(chess, move);
@@ -181,7 +257,7 @@ export function createServer({ dbFile = path.join(ROOT, 'data', 'chessclub.db') 
     const fields = { fen: chess.fen(), moves: JSON.stringify(moves), draw_offer_by: null };
     const over = gameOverInfo(chess);
     if (over) Object.assign(fields, { status: 'finished', result: over.result, termination: over.termination });
-    updateGame(g.id, fields);
+    updateGameWithClock(g, fields, { moved: true });
     return notify(g.id);
   }
 
@@ -319,11 +395,13 @@ export function createServer({ dbFile = path.join(ROOT, 'data', 'chessclub.db') 
         if (invitedId === me.id) throw new HttpError(400, 'You cannot challenge yourself');
         if (!q.membership.get(club.id, invitedId)) throw new HttpError(400, 'Opponent is not a club member');
       }
+      const tc = readTimeControl(body, 'online');
       const { lastInsertRowid } = q.insertGame.run(
         club.id, 'online', visibility, 'waiting', me.id,
         color === 'white' ? me.id : null, color === 'black' ? me.id : null,
         color === 'white' ? me.username : null, color === 'black' ? me.username : null,
         color, invitedId, START_FEN, START_FEN, '[]', '*', null, JSON.stringify({ evalBar: body.evalBar === true }), now, now,
+        tc ? JSON.stringify(tc) : null, tc?.initial ?? null, tc?.initial ?? null, null,
       );
       const state = notify(Number(lastInsertRowid));
       return res.status(201).json({ game: state });
@@ -351,11 +429,17 @@ export function createServer({ dbFile = path.join(ROOT, 'data', 'chessclub.db') 
       if (mode === 'otb') meta.event = cleanText(body.event, 80);
       if (body.evalBar === true) meta.evalBar = true;
       const over = gameOverInfo(chess);
+      // The broadcaster's device has been timing the game so far; continue from its clock readings.
+      const tc = readTimeControl(body, mode);
+      const clockStarts = tc && !over && sanMoves.length >= 2;
       const { lastInsertRowid } = q.insertGame.run(
         club.id, mode, 'club', over ? 'finished' : 'active', me.id,
         null, null, whiteName, blackName, null, null,
         startFen, chess.fen(), JSON.stringify(sanMoves),
         over ? over.result : '*', over ? over.termination : null, JSON.stringify(meta), now, now,
+        tc ? JSON.stringify(tc) : null,
+        tc ? clampMs(body.whiteMs, tc.initial) : null, tc ? clampMs(body.blackMs, tc.initial) : null,
+        clockStarts ? now : null,
       );
       const state = notify(Number(lastInsertRowid));
       return res.status(201).json({ game: state });
@@ -391,6 +475,8 @@ export function createServer({ dbFile = path.join(ROOT, 'data', 'chessclub.db') 
     const changed = db.prepare(`UPDATE games SET status = 'active', white_id = ?, white_name = ?, black_id = ?,
       black_name = ?, updated_at = ? WHERE id = ? AND status = 'waiting'`)
       .run(fields.white_id, fields.white_name, fields.black_id, fields.black_name, Date.now(), g.id);
+    const tc = getTimeControl(g);
+    if (tc) updateGame(g.id, { white_ms: tc.initial, black_ms: tc.initial, turn_started_at: null });
     if (changed.changes === 0) throw new HttpError(409, 'This challenge is no longer open');
     res.json({ game: notify(g.id) });
   });
@@ -405,10 +491,10 @@ export function createServer({ dbFile = path.join(ROOT, 'data', 'chessclub.db') 
       // Stopping a broadcast pauses it: the game continues privately on the broadcaster's device and
       // can be resumed under the same id, so spectators already watching pick it up again.
       if (g.created_by !== me.id) throw new HttpError(403, 'Only the broadcaster can stop this broadcast');
-      updateGame(g.id, { status: 'paused', draw_offer_by: null });
+      updateGameWithClock(g, { status: 'paused', draw_offer_by: null });
     } else if (g.status === 'active' && g.mode === 'online' && JSON.parse(g.moves).length < 2) {
       if (g.white_id !== me.id && g.black_id !== me.id) throw new HttpError(403, 'Not your game');
-      updateGame(g.id, { status: 'aborted', termination: 'aborted' });
+      updateGameWithClock(g, { status: 'aborted', termination: 'aborted' });
     } else {
       throw new HttpError(409, 'This game cannot be cancelled');
     }
@@ -436,7 +522,8 @@ export function createServer({ dbFile = path.join(ROOT, 'data', 'chessclub.db') 
     } else {
       throw new HttpError(400, 'Use the result endpoint for this game');
     }
-    updateGame(g.id, {
+    if (checkFlag(g.id)) throw new HttpError(409, 'Time is up');
+    updateGameWithClock(g, {
       status: 'finished',
       result: loser === 'w' ? '0-1' : '1-0',
       termination: `${loser === 'w' ? 'white' : 'black'} resigned`,
@@ -453,13 +540,14 @@ export function createServer({ dbFile = path.join(ROOT, 'data', 'chessclub.db') 
     const action = req.body?.action;
     if (action === 'offer') {
       if (g.draw_offer_by && g.draw_offer_by !== me.id) {
-        updateGame(g.id, { status: 'finished', result: '1/2-1/2', termination: 'draw agreed', draw_offer_by: null });
+        updateGameWithClock(g, { status: 'finished', result: '1/2-1/2', termination: 'draw agreed', draw_offer_by: null });
       } else {
         updateGame(g.id, { draw_offer_by: me.id });
       }
     } else if (action === 'accept') {
       if (!g.draw_offer_by || g.draw_offer_by === me.id) throw new HttpError(409, 'There is no draw offer to accept');
-      updateGame(g.id, { status: 'finished', result: '1/2-1/2', termination: 'draw agreed', draw_offer_by: null });
+      if (checkFlag(g.id)) throw new HttpError(409, 'Time is up');
+      updateGameWithClock(g, { status: 'finished', result: '1/2-1/2', termination: 'draw agreed', draw_offer_by: null });
     } else if (action === 'decline') {
       if (!g.draw_offer_by || g.draw_offer_by === me.id) throw new HttpError(409, 'There is no draw offer to decline');
       updateGame(g.id, { draw_offer_by: null });
@@ -477,7 +565,7 @@ export function createServer({ dbFile = path.join(ROOT, 'data', 'chessclub.db') 
     if (g.status !== 'active') throw new HttpError(409, 'Game is not active');
     const result = req.body?.result;
     if (!RESULTS.has(result)) throw new HttpError(400, 'Result must be 1-0, 0-1 or 1/2-1/2');
-    updateGame(g.id, { status: 'finished', result, termination: cleanText(req.body?.termination, 60) || 'result declared' });
+    updateGameWithClock(g, { status: 'finished', result, termination: cleanText(req.body?.termination, 60) || 'result declared' });
     res.json({ game: notify(g.id) });
   });
 
@@ -495,12 +583,19 @@ export function createServer({ dbFile = path.join(ROOT, 'data', 'chessclub.db') 
       throw new HttpError(400, 'Move list contains an illegal move');
     }
     const over = gameOverInfo(chess);
+    const tc = getTimeControl(g);
     updateGame(g.id, {
       status: over ? 'finished' : 'active',
       moves: JSON.stringify(chess.history()),
       fen: chess.fen(),
       result: over ? over.result : '*',
       termination: over ? over.termination : null,
+      // Continue from the broadcaster's clock readings after playing privately.
+      ...(tc ? {
+        white_ms: clampMs(req.body?.whiteMs, g.white_ms),
+        black_ms: clampMs(req.body?.blackMs, g.black_ms),
+        turn_started_at: !over && chess.history().length >= 2 ? Date.now() : null,
+      } : {}),
     });
     res.json({ game: notify(g.id) });
   });
@@ -514,7 +609,7 @@ export function createServer({ dbFile = path.join(ROOT, 'data', 'chessclub.db') 
     const count = Math.min(2, Math.max(1, Number(req.body?.count) || 1));
     const moves = JSON.parse(g.moves).slice(0, -count);
     const chess = replay(g.start_fen, moves);
-    updateGame(g.id, { moves: JSON.stringify(moves), fen: chess.fen() });
+    updateGameWithClock(g, { moves: JSON.stringify(moves), fen: chess.fen() });
     res.json({ game: notify(g.id) });
   });
 

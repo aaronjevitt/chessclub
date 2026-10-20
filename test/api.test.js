@@ -4,10 +4,11 @@ import { io as ioClient } from 'socket.io-client';
 import { createServer } from '../server/app.js';
 
 let server;
+let db;
 let base;
 
 before(async () => {
-  ({ server } = createServer({ dbFile: ':memory:' }));
+  ({ server, db } = createServer({ dbFile: ':memory:' }));
   await new Promise((resolve) => server.listen(0, resolve));
   base = `http://localhost:${server.address().port}`;
 });
@@ -229,4 +230,86 @@ test('sockets reject unauthenticated connections', async () => {
   const err = await new Promise((resolve) => socket.on('connect_error', resolve));
   assert.equal(err.message, 'unauthorized');
   socket.close();
+});
+
+test('timed games: server-authoritative clocks, increment, flag on late move and by timer', async () => {
+  const a = await registered('clocka');
+  const b = await registered('clockb');
+  const club = (await a.post('/api/clubs', { name: 'Blitz' })).body.club;
+  await b.post(`/api/clubs/${club.id}/join`);
+
+  assert.equal((await a.post(`/api/clubs/${club.id}/games`, { mode: 'online', timeControl: { initial: 1 } })).status, 400);
+  const g = (await a.post(`/api/clubs/${club.id}/games`, { mode: 'online', color: 'white', timeControl: { initial: 60, increment: 2 } })).body.game;
+  assert.deepEqual(g.timeControl, { initial: 60, increment: 2 });
+  await b.post(`/api/games/${g.id}/accept`);
+
+  // First move of each side is untimed.
+  await a.post(`/api/games/${g.id}/move`, { san: 'e4' });
+  let state = (await b.post(`/api/games/${g.id}/move`, { san: 'e5' })).body.game;
+  assert.equal(state.clock.running, 'w');
+  assert.ok(state.clock.white > 59900 && state.clock.white <= 60000, String(state.clock.white));
+  assert.equal(state.clock.black, 60000);
+
+  // White spends ~10s (simulated by moving the turn start back), then gets the 2s increment.
+  db.prepare('UPDATE games SET turn_started_at = turn_started_at - 10000 WHERE id = ?').run(g.id);
+  state = (await a.post(`/api/games/${g.id}/move`, { san: 'Nf3' })).body.game;
+  assert.ok(state.clock.white <= 52000 && state.clock.white > 51500, String(state.clock.white));
+  assert.equal(state.clock.running, 'b');
+
+  // Black's time has run out: a late move is refused and the game is lost on time.
+  db.prepare('UPDATE games SET turn_started_at = turn_started_at - 61000 WHERE id = ?').run(g.id);
+  const late = await b.post(`/api/games/${g.id}/move`, { san: 'Nc6' });
+  assert.equal(late.status, 409);
+  state = (await a.get(`/api/games/${g.id}`)).body.game;
+  assert.equal(state.status, 'finished');
+  assert.equal(state.result, '1-0');
+  assert.equal(state.termination, 'black ran out of time');
+  assert.equal(state.clock.black, 0);
+  assert.equal(state.clock.running, null);
+
+  // Flag by timer, with nobody making a request: white has 150ms left.
+  const g2 = (await a.post(`/api/clubs/${club.id}/games`, { mode: 'online', color: 'white', timeControl: { initial: 60 } })).body.game;
+  await b.post(`/api/games/${g2.id}/accept`);
+  await a.post(`/api/games/${g2.id}/move`, { san: 'd4' });
+  await b.post(`/api/games/${g2.id}/move`, { san: 'd5' });
+  db.prepare('UPDATE games SET white_ms = 150 WHERE id = ?').run(g2.id);
+  await a.post(`/api/games/${g2.id}/draw`, { action: 'offer' }); // any action reschedules the flag timer
+  const socket = ioClient(base, { extraHeaders: { Cookie: b.cookie }, transports: ['websocket'] });
+  await new Promise((resolve) => socket.emit('watch:game', g2.id, resolve));
+  const flagged = await new Promise((resolve) => socket.on('game', (s) => s.status === 'finished' && resolve(s)));
+  assert.equal(flagged.result, '0-1');
+  assert.equal(flagged.termination, 'white ran out of time');
+  socket.close();
+
+  // Resigning freezes the clock.
+  const g3 = (await a.post(`/api/clubs/${club.id}/games`, { mode: 'online', color: 'white', timeControl: { initial: 30 } })).body.game;
+  await b.post(`/api/games/${g3.id}/accept`);
+  await a.post(`/api/games/${g3.id}/move`, { san: 'c4' });
+  await b.post(`/api/games/${g3.id}/move`, { san: 'c5' });
+  const resigned = (await a.post(`/api/games/${g3.id}/resign`)).body.game;
+  assert.equal(resigned.clock.running, null);
+  assert.ok(resigned.clock.white > 29000);
+
+  // Untimed games have no clock.
+  const g4 = (await a.post(`/api/clubs/${club.id}/games`, { mode: 'online' })).body.game;
+  assert.equal(g4.clock, null);
+  assert.equal(g4.timeControl, null);
+});
+
+test('timed broadcast computer game continues from the broadcaster clock readings', async () => {
+  const a = await registered('clockcast');
+  const club = (await a.post('/api/clubs', { name: 'Cast' })).body.club;
+  const g = (await a.post(`/api/clubs/${club.id}/games`, {
+    mode: 'computer', playerColor: 'white', level: 1, moves: ['e4', 'e5'],
+    timeControl: { initial: 180, increment: 2 }, whiteMs: 170000, blackMs: 175000,
+  })).body.game;
+  assert.equal(g.clock.running, 'w');
+  assert.ok(g.clock.white <= 170000 && g.clock.white > 169000);
+  assert.equal(g.clock.black, 175000);
+  const paused = (await a.post(`/api/games/${g.id}/cancel`)).body.game;
+  assert.equal(paused.clock.running, null);
+  const resumed = (await a.post(`/api/games/${g.id}/resume`, { moves: ['e4', 'e5', 'Nf3'], whiteMs: 150000, blackMs: 160000 })).body.game;
+  assert.equal(resumed.clock.running, 'b');
+  assert.ok(resumed.clock.black <= 160000 && resumed.clock.black > 159000);
+  assert.equal(resumed.clock.white, 150000);
 });

@@ -340,3 +340,15 @@ body.tv-mode main { max-width: none; padding: 0; }
 .tv-board-row { display: flex; gap: calc(var(--tv-board) * .02); }
 .tv-board-row .eval-bar { width: calc(var(--tv-board) * .05); }
 .tv-board-row .eval-label { font-size: max(10px, calc(var(--tv-board) * .026)); }
+
+/* ---------- clocks ---------- */
+.player-bar .clock { margin-left: auto; }
+.clock {
+  font-variant-numeric: tabular-nums; font-weight: 700; font-size: 1.25rem; padding: .15rem .6rem;
+  border-radius: 6px; background: var(--surface-2); border: 1px solid var(--border); color: var(--muted); min-width: 5.2ch; text-align: center;
+}
+.clock.running { background: var(--surface); color: var(--text); border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent-soft); }
+.clock.low { color: #fff; background: var(--danger); border-color: var(--danger); box-shadow: none; }
+.tv-player .clock { margin-left: auto; font-size: 1em; padding: .05em .45em; }
+.custom-tc input { width: 5.5rem; flex: none; }
+.custom-tc[hidden] { display: none; }

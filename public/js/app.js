@@ -5,6 +5,7 @@ import { mountGameView, MODE_LABEL, resultText, computerName } from './game-view
 import { listLocalGames, saveLocalGame, newLocalId } from './local-games.js';
 import { LEVELS } from './engine.js';
 import { mountTvView } from './tv-view.js';
+import { timeControlPicker, tcDescription, tcLabel } from './time-control.js';
 
 const START_FEN = 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1';
 const main = document.getElementById('main');
@@ -101,6 +102,7 @@ function gameCard(g, { local = false } = {}) {
         el('span', { class: 'pw' }, g.white.name || '?'), el('span', { class: 'vs' }, ' vs '), el('span', { class: 'pb' }, g.black.name || '?')),
       el('div', { class: 'badges' },
         el('span', { class: `badge mode-${g.mode}` }, MODE_LABEL[g.mode]),
+        g.timeControl ? el('span', { class: 'badge' }, `⏱ ${tcLabel(g.timeControl)}`) : null,
         g.visibility === 'private' || local ? el('span', { class: 'badge private' }, '🔒 Private') : null,
         !local && g.status === 'active' ? el('span', { class: 'badge live' }, '● Live') : null),
       el('div', { class: 'muted small' }, status),
@@ -219,7 +221,7 @@ function challengeRow(g, refresh) {
       el('strong', {}, mine ? (g.invitedName ? `You challenged ${g.invitedName}` : 'Your open challenge') : `${g.creatorName} challenges ${forMe ? 'you' : 'anyone'}`),
       g.visibility === 'private' ? el('span', { class: 'badge private' }, '🔒 Private') : null,
       g.meta?.evalBar ? el('span', { class: 'badge' }, 'Eval bar') : null,
-      el('div', { class: 'muted small' }, `${colorText} · ${g.clubName} · ${timeAgo(g.createdAt)}`)),
+      el('div', { class: 'muted small' }, `${tcDescription(g.timeControl)} · ${colorText} · ${g.clubName} · ${timeAgo(g.createdAt)}`)),
     el('div', { class: 'row' },
       mine ? el('button', { type: 'button', class: 'btn small', onclick: act('cancel') }, 'Cancel') : null,
       !mine ? el('button', { type: 'button', class: 'btn primary small', onclick: act('accept') }, 'Accept') : null,
@@ -265,6 +267,7 @@ async function clubView(clubId) {
   const membersSection = el('div');
   let members = detail.members;
 
+  const challengeTc = timeControlPicker();
   const challengeForm = el('form', { class: 'stack' },
     field('Opponent', el('select', { name: 'opponentId' },
       el('option', { value: '' }, 'Anyone in the club'),
@@ -274,6 +277,7 @@ async function clubView(clubId) {
     field('Visibility', el('select', { name: 'visibility' },
       el('option', { value: 'club' }, 'Club — members can watch live'),
       el('option', { value: 'private' }, 'Private — only the two players'))),
+    field('Time control', challengeTc.el),
     el('label', { class: 'check' }, el('input', { type: 'checkbox', name: 'evalBar' }), ' Show evaluation bar (visible to both players)'),
     el('button', { type: 'submit', class: 'btn primary' }, 'Create challenge'));
   challengeForm.addEventListener('submit', (e) => {
@@ -288,6 +292,7 @@ async function clubView(clubId) {
           visibility: d.visibility,
           opponentId: d.opponentId ? Number(d.opponentId) : null,
           evalBar: d.evalBar === 'on',
+          timeControl: challengeTc.read(),
         },
       });
       toast(game.invitedName ? `Challenge sent to ${game.invitedName}` : 'Open challenge posted');
@@ -415,12 +420,14 @@ async function newGameView(params) {
     el('input', { type: 'radio', name: 'mode', value, checked: value === mode }),
     el('div', {}, el('strong', {}, title), el('div', { class: 'muted small' }, desc)));
 
+  const computerTc = timeControlPicker();
   const computerFields = el('div', { class: 'stack mode-fields', dataset: { mode: 'computer' } },
     field('Your color', el('select', { name: 'playerColor' },
       el('option', { value: 'white' }, 'White'), el('option', { value: 'black' }, 'Black'), el('option', { value: 'random' }, 'Random'))),
     field('Computer strength', el('select', { name: 'level' },
       Object.entries(LEVELS).map(([lvl, l]) => el('option', { value: lvl, selected: lvl === '3' }, `${lvl} — ${l.name}`))),
-    'The computer runs entirely in your browser.'));
+    'The computer runs entirely in your browser.'),
+    field('Time control', computerTc.el));
   const otbFields = el('div', { class: 'stack mode-fields', dataset: { mode: 'otb' } },
     field('White player', el('input', { name: 'whiteName', maxlength: 40, placeholder: 'White' })),
     field('Black player', el('input', { name: 'blackName', maxlength: 40, placeholder: 'Black' })),
@@ -463,6 +470,7 @@ async function newGameView(params) {
       } catch {
         throw new Error('That FEN is not a valid position');
       }
+      const timeControl = d.mode === 'computer' ? computerTc.read() : null;
       const playerColor = d.playerColor === 'random' ? (Math.random() < 0.5 ? 'white' : 'black') : d.playerColor;
       const level = Number(d.level) || 3;
       let whiteName;
@@ -483,7 +491,7 @@ async function newGameView(params) {
       if (d.broadcast) {
         const { game } = await api(`/clubs/${d.broadcast}/games`, {
           method: 'POST',
-          body: { mode: d.mode, startFen, whiteName, blackName, ...gameMeta },
+          body: { mode: d.mode, startFen, whiteName, blackName, timeControl, ...gameMeta },
         });
         navigate(`#/game/${game.id}`);
         return;
@@ -500,6 +508,10 @@ async function newGameView(params) {
         black: { name: blackName },
         meta: gameMeta,
         createdAt: Date.now(),
+        timeControl,
+        clock: timeControl
+          ? { white: timeControl.initial * 1000, black: timeControl.initial * 1000, running: null, since: Date.now() }
+          : null,
       };
       saveLocalGame(user.id, local);
       navigate(`#/local/${local.id}`);

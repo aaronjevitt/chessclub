@@ -5,6 +5,7 @@ import { el, clear } from './dom.js';
 import { renderMiniBoard } from './board.js';
 import { MODE_LABEL, resultText } from './game-view.js';
 import { Evaluator, createEvalBar } from './eval-bar.js';
+import { formatClock, tcLabel } from './time-control.js';
 
 // Finished games stay on screen this long so the room can see the result.
 const SHOW_FINISHED_MS = 30 * 1000;
@@ -25,12 +26,37 @@ function boardDecorations(game) {
   return { lastMove: last ? { from: last.from, to: last.to } : null, check };
 }
 
+// Clock elements on screen, ticked between server updates.
+let clockRefs = [];
+
+function clockRemaining(game, color) {
+  const c = game.clock;
+  const base = color === 'w' ? c.white : c.black;
+  return Math.max(0, base - (game.status === 'active' && c.running === color ? Date.now() - c.since : 0));
+}
+
+function tickClocks() {
+  for (const { el: clockEl, game, color } of clockRefs) {
+    const ms = clockRemaining(game, color);
+    clockEl.textContent = formatClock(ms);
+    const running = game.status === 'active' && game.clock.running === color;
+    clockEl.classList.toggle('running', running);
+    clockEl.classList.toggle('low', running && ms < Math.min(20000, game.timeControl.initial * 200));
+  }
+}
+
 function playerRow(game, color) {
   const side = color === 'w' ? game.white : game.black;
   const toMove = game.status === 'active' && game.turn === color;
+  let clockEl = null;
+  if (game.clock) {
+    clockEl = el('span', { class: 'clock' });
+    clockRefs.push({ el: clockEl, game, color });
+  }
   return el('div', { class: `tv-player ${toMove ? 'to-move' : ''}` },
     el('span', { class: `turn-dot ${toMove ? 'on' : ''} ${color === 'w' ? 'white' : 'black'}` }),
-    el('span', { class: 'tv-name' }, side.name || '?'));
+    el('span', { class: 'tv-name' }, side.name || '?'),
+    clockEl);
 }
 
 function tile(game, evalBar) {
@@ -43,7 +69,8 @@ function tile(game, evalBar) {
     playerRow(game, 'b'),
     evalBar ? el('div', { class: 'tv-board-row' }, evalBar.el, boardEl) : boardEl,
     playerRow(game, 'w'),
-    el('div', { class: 'tv-meta' }, MODE_LABEL[game.mode], moveNo ? ` · move ${moveNo}` : ''));
+    el('div', { class: 'tv-meta' }, MODE_LABEL[game.mode], game.timeControl ? ` · ${tcLabel(game.timeControl)}` : '',
+      moveNo ? ` · move ${moveNo}` : ''));
 }
 
 export async function mountTvView(root, clubId) {
@@ -124,7 +151,9 @@ export async function mountTvView(root, clubId) {
       return;
     }
     for (const id of evalBars.keys()) if (!games.some((g) => g.id === id)) evalBars.delete(id);
+    clockRefs = [];
     clear(grid, games.map((g) => tile(g, evalBarFor(g))));
+    tickClocks();
     layout();
   }
 
@@ -136,6 +165,8 @@ export async function mountTvView(root, clubId) {
       return;
     }
     const now = Date.now();
+    // Clock readings count down from the moment they arrived.
+    for (const g of [...data.active, ...data.finished]) if (g.clock) g.clock.since = now;
     for (const g of data.finished) {
       if (finishedAt.has(g.id)) continue;
       // Time games that end while on screen by this display's clock; for games that had already
@@ -174,11 +205,14 @@ export async function mountTvView(root, clubId) {
   window.addEventListener('resize', layout);
   // Refresh periodically to update the clock and retire finished games.
   const tick = setInterval(load, 30000);
+  const clockTick = setInterval(tickClocks, 200);
   await load();
 
   return () => {
     clearTimeout(timer);
     clearInterval(tick);
+    clearInterval(clockTick);
+    clockRefs = [];
     clearTimeout(expiryTimer);
     evaluator.destroy();
     window.removeEventListener('resize', layout);

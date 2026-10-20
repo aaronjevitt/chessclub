@@ -69,5 +69,12 @@ export function openDb(file) {
     );
     CREATE INDEX IF NOT EXISTS games_club_status ON games(club_id, status);
   `);
+
+  // Columns added after the first release; add them to existing databases.
+  const gameColumns = new Set(db.prepare('PRAGMA table_info(games)').all().map((c) => c.name));
+  const added = { time_control: 'TEXT', white_ms: 'INTEGER', black_ms: 'INTEGER', turn_started_at: 'INTEGER' };
+  for (const [name, type] of Object.entries(added)) {
+    if (!gameColumns.has(name)) db.exec(`ALTER TABLE games ADD COLUMN ${name} ${type}`);
+  }
   return db;
 }

@@ -5,6 +5,8 @@ import { el, clear, toast } from './dom.js';
 import { saveLocalGame, getLocalGame, deleteLocalGame, newLocalId } from './local-games.js';
 import { LEVELS } from './engine.js';
 import { Evaluator, createEvalBar } from './eval-bar.js';
+import { formatClock, tcDescription } from './time-control.js';
+import { timeoutResult } from './clock-rules.js';
 
 export const MODE_LABEL = { online: 'Online', computer: 'vs Computer', self: 'Self-play', otb: 'Over the board' };
 const BROADCAST_MODES = new Set(['computer', 'self', 'otb']);
@@ -69,6 +71,8 @@ export function mountGameView(root, { user, kind, id, navigate }) {
   let orientationSet = false;
   let myClubs = [];
   let destroyed = false;
+  const clockEls = { w: null, b: null };
+  let clockTimer = null;
   const socket = kind === 'server' ? getSocket() : null;
 
   const topBar = el('div', { class: 'player-bar' });
@@ -113,6 +117,56 @@ export function mountGameView(root, { user, kind, id, navigate }) {
     return true;
   }
 
+  // ---------- clocks ----------
+  // state.clock is {white, black, running, since}: remaining ms as of `since` (a local timestamp), with
+  // `running` ('w'/'b'/null) counting down. Server games: the server sends the remaining time and we count
+  // down from when it arrived. Private games: this device keeps the clock, with the same rules.
+
+  function remainingMs(color) {
+    const c = state.clock;
+    if (!c) return null;
+    const base = color === 'w' ? c.white : c.black;
+    const elapsed = c.running === color && state.status === 'active' ? Date.now() - c.since : 0;
+    return Math.max(0, base - elapsed);
+  }
+
+  /** Private games: stop the clock, keeping the current readings. */
+  function freezeLocalClock() {
+    if (!state.clock) return;
+    state.clock = { white: remainingMs('w'), black: remainingMs('b'), running: null, since: Date.now() };
+  }
+
+  /** Private games: start the side to move's clock (once both sides have made their first move). */
+  function startLocalClock() {
+    if (!state.clock) return;
+    freezeLocalClock();
+    if (state.status === 'active' && state.moves.length >= 2) state.clock.running = buildChess(state).turn();
+  }
+
+  function flagLocal(color) {
+    freezeLocalClock();
+    state.clock[color === 'w' ? 'white' : 'black'] = 0;
+    Object.assign(state, { status: 'finished', ...timeoutResult(buildChess(state).fen(), color) });
+    stopEngine();
+    persistLocal();
+    render();
+  }
+
+  function tickClocks() {
+    if (!state?.clock || destroyed) return;
+    const lowAt = Math.min(20000, (state.timeControl?.initial ?? 60) * 1000 * 0.2);
+    for (const color of ['w', 'b']) {
+      const elClock = clockEls[color];
+      if (!elClock) continue;
+      const ms = remainingMs(color);
+      elClock.textContent = formatClock(ms);
+      const running = state.status === 'active' && state.clock.running === color;
+      elClock.classList.toggle('running', running);
+      elClock.classList.toggle('low', running && ms < lowAt);
+      if (kind === 'local' && running && ms <= 0) return flagLocal(color);
+    }
+  }
+
   // ---------- actions ----------
 
   function persistLocal() {
@@ -128,9 +182,17 @@ export function mountGameView(root, { user, kind, id, navigate }) {
       } catch {
         return render();
       }
+      const mover = chess.turn() === 'w' ? 'b' : 'w';
+      if (state.clock?.running) {
+        const left = remainingMs(mover);
+        if (left <= 0) return flagLocal(mover);
+        state.clock[mover === 'w' ? 'white' : 'black'] = left + state.timeControl.increment * 1000;
+        state.clock.since = Date.now();
+      }
       state.moves = [...state.moves, san];
       const over = gameOverInfo(chess);
       if (over) Object.assign(state, { status: 'finished', ...over });
+      startLocalClock();
       persistLocal();
       return render();
     }
@@ -190,8 +252,10 @@ export function mountGameView(root, { user, kind, id, navigate }) {
     stopEngine();
     viewPly = null;
     if (kind === 'local') {
+      freezeLocalClock();
       state.moves = state.moves.slice(0, -count);
       Object.assign(state, { status: 'active', result: '*', termination: null });
+      startLocalClock();
       persistLocal();
       return render();
     }
@@ -203,6 +267,7 @@ export function mountGameView(root, { user, kind, id, navigate }) {
     stopEngine();
     if (kind === 'local') {
       const lost = state.meta.playerColor === 'black' ? 'black' : 'white';
+      freezeLocalClock();
       Object.assign(state, { status: 'finished', result: lost === 'white' ? '0-1' : '1-0', termination: `${lost} resigned` });
       persistLocal();
       return render();
@@ -214,6 +279,7 @@ export function mountGameView(root, { user, kind, id, navigate }) {
     const label = result === '1/2-1/2' ? 'a draw' : `${result === '1-0' ? state.white.name : state.black.name} winning`;
     if (!confirm(`End the game with ${label}?`)) return;
     if (kind === 'local') {
+      freezeLocalClock();
       Object.assign(state, { status: 'finished', result, termination: 'result declared' });
       persistLocal();
       return render();
@@ -226,7 +292,10 @@ export function mountGameView(root, { user, kind, id, navigate }) {
     const previous = state.broadcast;
     if (previous && String(previous.clubId) === String(clubId)) {
       try {
-        const { game } = await api(`/games/${previous.gameId}/resume`, { method: 'POST', body: { moves: state.moves } });
+        const { game } = await api(`/games/${previous.gameId}/resume`, {
+          method: 'POST',
+          body: { moves: state.moves, whiteMs: remainingMs('w'), blackMs: remainingMs('b') },
+        });
         deleteLocalGame(user.id, state.id);
         toast('Broadcast resumed');
         navigate(`#/game/${game.id}`);
@@ -248,6 +317,9 @@ export function mountGameView(root, { user, kind, id, navigate }) {
           level: state.meta.level,
           event: state.meta.event,
           evalBar: !!state.meta.evalBar,
+          timeControl: state.timeControl || null,
+          whiteMs: remainingMs('w'),
+          blackMs: remainingMs('b'),
           localId: state.id,
         },
       });
@@ -261,8 +333,8 @@ export function mountGameView(root, { user, kind, id, navigate }) {
 
   async function stopBroadcast() {
     if (!confirm('Stop broadcasting? The game continues privately on this device.')) return;
-    const snapshot = state;
     if (!(await serverAction('cancel'))) return;
+    const snapshot = state;
     const local = {
       id: newLocalId(),
       mode: snapshot.mode,
@@ -276,7 +348,10 @@ export function mountGameView(root, { user, kind, id, navigate }) {
       meta: snapshot.meta,
       createdAt: snapshot.createdAt,
       broadcast: { gameId: snapshot.id, clubId: snapshot.clubId },
+      timeControl: snapshot.timeControl,
+      clock: snapshot.clock ? { white: snapshot.clock.white, black: snapshot.clock.black, running: null, since: Date.now() } : null,
     };
+    if (local.clock && local.moves.length >= 2) local.clock.running = buildChess(local).turn();
     saveLocalGame(user.id, local);
     navigate(`#/local/${local.id}`);
   }
@@ -311,7 +386,14 @@ export function mountGameView(root, { user, kind, id, navigate }) {
       toast(`Computer failed to start: ${e.message || 'worker error'}`, 'error');
       render();
     };
-    worker.postMessage({ id: requestId, startFen: state.startFen, moves: state.moves, level: state.meta.level || 3 });
+    // On the clock, the computer budgets its thinking time like a player would.
+    let timeMs;
+    if (state.clock) {
+      const left = remainingMs(engineColor());
+      // About 1/40 of the remaining time plus most of the increment, never more than its level's usual time.
+      timeMs = Math.max(100, Math.min(LEVELS[state.meta.level || 3].timeMs, left / 40 + state.timeControl.increment * 800));
+    }
+    worker.postMessage({ id: requestId, startFen: state.startFen, moves: state.moves, level: state.meta.level || 3, timeMs });
     render();
   }
 
@@ -334,11 +416,13 @@ export function mountGameView(root, { user, kind, id, navigate }) {
       material += (counts[color][t] - counts[opp][t]) * VALUES[t];
     }
     const toMove = state.status === 'active' && chess.turn() === color;
+    clockEls[color] = state.clock ? el('span', { class: 'clock' }) : null;
     clear(bar,
       el('span', { class: `turn-dot ${toMove ? 'on' : ''} ${color === 'w' ? 'white' : 'black'}` }),
       el('span', { class: 'player-name' }, name || '—', isYou ? el('span', { class: 'you' }, ' (you)') : null),
       el('span', { class: 'captured' }, captured),
       material > 0 ? el('span', { class: 'material' }, `+${material}`) : null,
+      clockEls[color],
     );
   }
 
@@ -500,6 +584,9 @@ export function mountGameView(root, { user, kind, id, navigate }) {
 
   function render() {
     if (!state || destroyed) return;
+    // A clock reading straight from the server counts down from the moment it arrived.
+    if (kind === 'server' && state.clock && state.clock.since === undefined) state.clock.since = Date.now();
+    if (state.clock && !clockTimer) clockTimer = setInterval(tickClocks, 100);
     const live = viewPly === null;
     const ply = live ? state.moves.length : viewPly;
     let chess;
@@ -525,6 +612,7 @@ export function mountGameView(root, { user, kind, id, navigate }) {
     playerBar(topBar, bottomColor === 'w' ? 'b' : 'w', chess);
 
     const badges = [el('span', { class: `badge mode-${state.mode}` }, MODE_LABEL[state.mode])];
+    if (state.timeControl) badges.push(el('span', { class: 'badge' }, `⏱ ${tcDescription(state.timeControl)}`));
     if (state.mode === 'computer') badges.push(el('span', { class: 'badge' }, `Level ${state.meta.level}`));
     if (state.meta?.evalBar) badges.push(el('span', { class: 'badge' }, 'Eval bar'));
     if (kind === 'local') badges.push(el('span', { class: 'badge private' }, '🔒 Private'));
@@ -557,6 +645,7 @@ export function mountGameView(root, { user, kind, id, navigate }) {
 
     const myTurn = live && state.status === 'active' && state.mode === 'online' && canMoveColor(chess.turn());
     document.title = myTurn ? '● Your move — Chess Club' : 'Chess Club';
+    tickClocks();
     if (live) maybeEngineMove();
   }
 
@@ -611,6 +700,7 @@ export function mountGameView(root, { user, kind, id, navigate }) {
   return () => {
     destroyed = true;
     evaluator?.destroy();
+    clearInterval(clockTimer);
     stopEngine();
     window.removeEventListener('keydown', onKey);
     document.title = 'Chess Club';

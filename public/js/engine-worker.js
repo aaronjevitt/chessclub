@@ -7,7 +7,7 @@ self.onmessage = (event) => {
   try {
     const chess = new Chess(startFen);
     for (const san of moves) chess.move(san);
-    const result = type === 'eval' ? evaluatePosition(chess, { timeMs }) : findBestMove(chess, { level });
+    const result = type === 'eval' ? evaluatePosition(chess, { timeMs }) : findBestMove(chess, timeMs ? { level, timeMs } : { level });
     self.postMessage({ id, ...result });
   } catch (err) {
     self.postMessage({ id, error: String(err?.message || err) });
