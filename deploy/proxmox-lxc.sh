@@ -302,12 +302,15 @@ fi
 
 info "looking up a Debian container template"
 pveam update >/dev/null || warn "pveam update failed; using the cached template list"
+# Only consider templates built for this host's CPU (e.g. amd64 vs arm64), or the container cannot exec /sbin/init.
+HOST_ARCH="$(dpkg --print-architecture)"
 TEMPLATE=""
 for version in ${DEBIAN_VERSION:-13 12}; do
-  TEMPLATE="$(pveam available --section system | awk '{print $2}' | grep -E "^debian-${version}-standard_" | sort -V | tail -n1 || true)"
+  TEMPLATE="$(pveam available --section system | awk '{print $2}' \
+    | grep -E "^debian-${version}-standard_.*_${HOST_ARCH}\.tar\." | sort -V | tail -n1 || true)"
   [[ -n "$TEMPLATE" ]] && break
 done
-[[ -n "$TEMPLATE" ]] || die "no Debian ${DEBIAN_VERSION:-12/13} template available from pveam"
+[[ -n "$TEMPLATE" ]] || die "no Debian ${DEBIAN_VERSION:-12/13} template for $HOST_ARCH available from pveam"
 if ! pveam list "$TEMPLATE_STORAGE" | grep -q "$TEMPLATE"; then
   info "downloading $TEMPLATE to $TEMPLATE_STORAGE"
   pveam download "$TEMPLATE_STORAGE" "$TEMPLATE"
