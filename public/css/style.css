@@ -355,7 +355,9 @@ body.tv-mode main { max-width: none; padding: 0; }
 
 /* ---------- mobile: no double-tap zoom ---------- */
 /* Pinch-zoom still works; double-tap zoom (triggered by tapping a piece then a square) does not. */
-html { touch-action: manipulation; }
+html, body, a, button, input, select, label, summary, .move-list, .side-panel { touch-action: manipulation; }
+/* No long-press callout, magnifier or text selection on the board. */
+.board { -webkit-touch-callout: none; -webkit-user-select: none; -webkit-tap-highlight-color: transparent; }
 @media (max-width: 900px) {
   /* iOS zooms into focused inputs whose text is smaller than 16px. */
   input, select, textarea { font-size: 16px; }
