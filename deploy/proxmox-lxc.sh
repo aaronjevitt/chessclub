@@ -24,6 +24,9 @@
 #   IP                "dhcp" or CIDR, e.g. 192.168.1.50/24 (default: dhcp)
 #   GATEWAY           gateway when IP is static          (e.g. 192.168.1.1)
 #   VLAN              VLAN tag                           (default: none)
+#   DEBIAN_VERSION    Debian template version, 13 or 12  (default: newest available)
+#   UNPRIVILEGED      1 = unprivileged container, 0 = privileged (default: 1)
+#   NESTING           1 = enable the nesting feature, 0 = off    (default: 1)
 #   CT_PASSWORD       root password for console login    (default: none; use `pct enter`)
 #   SSH_KEY_FILE      public key to authorize for root   (default: none)
 #   PORT              port the app listens on            (default: 3000)
@@ -45,6 +48,9 @@ BRIDGE="${BRIDGE:-vmbr0}"
 IP="${IP:-dhcp}"
 GATEWAY="${GATEWAY:-}"
 VLAN="${VLAN:-}"
+DEBIAN_VERSION="${DEBIAN_VERSION:-}"
+UNPRIVILEGED="${UNPRIVILEGED:-1}"
+NESTING="${NESTING:-1}"
 PORT="${PORT:-3000}"
 COOKIE_SECURE="${COOKIE_SECURE:-0}"
 # Remember explicit choices so `update` only falls back to the recorded settings for unset ones.
@@ -296,9 +302,12 @@ fi
 
 info "looking up a Debian container template"
 pveam update >/dev/null || warn "pveam update failed; using the cached template list"
-TEMPLATE="$(pveam available --section system | awk '{print $2}' | grep -E '^debian-13-standard_' | sort -V | tail -n1 || true)"
-[[ -n "$TEMPLATE" ]] || TEMPLATE="$(pveam available --section system | awk '{print $2}' | grep -E '^debian-12-standard_' | sort -V | tail -n1 || true)"
-[[ -n "$TEMPLATE" ]] || die "no Debian 12/13 template available from pveam"
+TEMPLATE=""
+for version in ${DEBIAN_VERSION:-13 12}; do
+  TEMPLATE="$(pveam available --section system | awk '{print $2}' | grep -E "^debian-${version}-standard_" | sort -V | tail -n1 || true)"
+  [[ -n "$TEMPLATE" ]] && break
+done
+[[ -n "$TEMPLATE" ]] || die "no Debian ${DEBIAN_VERSION:-12/13} template available from pveam"
 if ! pveam list "$TEMPLATE_STORAGE" | grep -q "$TEMPLATE"; then
   info "downloading $TEMPLATE to $TEMPLATE_STORAGE"
   pveam download "$TEMPLATE_STORAGE" "$TEMPLATE"
@@ -319,8 +328,8 @@ CREATE_ARGS=(
   --swap "$SWAP_MB"
   --rootfs "$STORAGE:$DISK_GB"
   --net0 "$NET"
-  --unprivileged 1
-  --features nesting=1
+  --unprivileged "$UNPRIVILEGED"
+  --features "nesting=$NESTING"
   --onboot 1
   --start 0
   --description "Chess Club — https://github.com/aaronjevitt/chessclub"
@@ -333,7 +342,13 @@ fi
 
 info "creating CT $CTID ($CT_HOSTNAME) from $TEMPLATE"
 pct create "$CTID" "${CREATE_ARGS[@]}"
-pct start "$CTID"
+if ! pct start "$CTID"; then
+  echo >&2
+  warn "CT $CTID was created but failed to start. To see the real reason, run:"
+  echo "    pct start $CTID --debug" >&2
+  echo "Then remove it with 'pct destroy $CTID' and retry, e.g. with DEBIAN_VERSION=12, NESTING=0 or UNPRIVILEGED=0." >&2
+  exit 1
+fi
 wait_for_network "$CTID"
 deploy_into "$CTID"
 print_summary "$CTID"
