@@ -375,3 +375,6 @@ html { touch-action: manipulation; }
 .tv-done-score { font-size: 1.8em; font-weight: 800; line-height: 1; }
 .tv-done-names { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .tv-done-why { color: var(--muted); font-size: .9em; }
+.custom-elo[hidden] { display: none; }
+.custom-elo input[type=range] { flex: 1; padding: 0; }
+.custom-elo .elo-number { width: 6rem; flex: none; }

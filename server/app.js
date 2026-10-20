@@ -48,6 +48,13 @@ export function createServer({ dbFile = path.join(ROOT, 'data', 'chessclub.db') 
   app.get('/vendor/chess.js', (_req, res) => {
     res.sendFile(path.join(ROOT, 'node_modules', 'chess.js', 'dist', 'esm', 'chess.js'));
   });
+  // Stockfish (GPL-3.0, unmodified build from the "stockfish" npm package) runs in the browser.
+  const STOCKFISH_FILES = new Set(['stockfish-19-lite-single.js', 'stockfish-19-lite-single.wasm']);
+  app.get('/vendor/stockfish/:file', (req, res, next) => {
+    if (req.params.file === 'COPYING.txt') return res.sendFile(path.join(ROOT, 'node_modules', 'stockfish', 'Copying.txt'));
+    if (!STOCKFISH_FILES.has(req.params.file)) return next();
+    res.sendFile(path.join(ROOT, 'node_modules', 'stockfish', 'bin', req.params.file), { maxAge: '7d' });
+  });
 
   // ---------- data helpers ----------
 
@@ -423,7 +430,12 @@ export function createServer({ dbFile = path.join(ROOT, 'data', 'chessclub.db') 
       const meta = {};
       if (mode === 'computer') {
         meta.playerColor = body.playerColor === 'black' ? 'black' : 'white';
-        meta.level = Math.min(5, Math.max(1, Number(body.level) || 3));
+        if (body.elo != null) {
+          meta.elo = Math.min(3190, Math.max(400, Math.round(Number(body.elo)) || 1500));
+          if (body.bot) meta.bot = cleanText(body.bot, 30);
+        } else {
+          meta.level = Math.min(5, Math.max(1, Number(body.level) || 3));
+        }
       }
       if (body.localId) meta.localId = cleanText(body.localId, 64);
       if (mode === 'otb') meta.event = cleanText(body.event, 80);

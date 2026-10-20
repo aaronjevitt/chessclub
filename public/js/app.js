@@ -1,9 +1,9 @@
 import { api, getSocket, resetSocket } from './api.js';
 import { el, clear, toast, timeAgo } from './dom.js';
 import { renderMiniBoard } from './board.js';
-import { mountGameView, MODE_LABEL, resultText, computerName } from './game-view.js';
+import { mountGameView, MODE_LABEL, resultText } from './game-view.js';
 import { listLocalGames, saveLocalGame, newLocalId } from './local-games.js';
-import { LEVELS } from './engine.js';
+import { BOTS, MIN_ELO, MAX_ELO, botName, clampElo, isApproximate } from './bots.js';
 import { mountTvView } from './tv-view.js';
 import { timeControlPicker, tcDescription, tcLabel } from './time-control.js';
 
@@ -424,9 +424,16 @@ async function newGameView(params) {
   const computerFields = el('div', { class: 'stack mode-fields', dataset: { mode: 'computer' } },
     field('Your color', el('select', { name: 'playerColor' },
       el('option', { value: 'white' }, 'White'), el('option', { value: 'black' }, 'Black'), el('option', { value: 'random' }, 'Random'))),
-    field('Computer strength', el('select', { name: 'level' },
-      Object.entries(LEVELS).map(([lvl, l]) => el('option', { value: lvl, selected: lvl === '3' }, `${lvl} — ${l.name}`))),
-    'The computer runs entirely in your browser.'),
+    field('Opponent', el('select', { name: 'bot' },
+      BOTS.map((b, i) => el('option', { value: i, selected: b.elo === 1500 }, `${b.name} — ${b.elo}${isApproximate(b.elo) ? ' (approx.)' : ''} · ${b.blurb}`)),
+      el('option', { value: 'custom' }, 'Custom Elo…')),
+    'Stockfish 19, running entirely in your browser.'),
+    el('div', { class: 'field custom-elo', hidden: true },
+      el('span', { class: 'field-label' }, 'Computer Elo'),
+      el('div', { class: 'row' },
+        el('input', { type: 'range', name: 'eloRange', min: MIN_ELO, max: MAX_ELO, step: 10, value: 1500, 'aria-label': 'Computer Elo' }),
+        el('input', { type: 'number', name: 'elo', min: MIN_ELO, max: MAX_ELO, step: 10, value: 1500, class: 'elo-number', 'aria-label': 'Computer Elo value' })),
+      el('span', { class: 'hint' }, `${MIN_ELO}–${MAX_ELO}. Stockfish's own strength limiter covers 1320 and up; lower ratings are approximate.`)),
     field('Time control', computerTc.el));
   const otbFields = el('div', { class: 'stack mode-fields', dataset: { mode: 'otb' } },
     field('White player', el('input', { name: 'whiteName', maxlength: 40, placeholder: 'White' })),
@@ -455,7 +462,11 @@ async function newGameView(params) {
   const sync = () => {
     const current = form.querySelector('input[name=mode]:checked').value;
     form.querySelectorAll('.mode-fields').forEach((f) => { f.hidden = f.dataset.mode !== current; });
+    form.querySelector('.custom-elo').hidden = current !== 'computer' || form.elements.bot.value !== 'custom';
   };
+  // Keep the Elo slider and number box in step.
+  form.elements.eloRange.addEventListener('input', () => { form.elements.elo.value = form.elements.eloRange.value; });
+  form.elements.elo.addEventListener('input', () => { form.elements.eloRange.value = form.elements.elo.value; });
   form.addEventListener('change', sync);
   sync();
 
@@ -472,14 +483,16 @@ async function newGameView(params) {
       }
       const timeControl = d.mode === 'computer' ? computerTc.read() : null;
       const playerColor = d.playerColor === 'random' ? (Math.random() < 0.5 ? 'white' : 'black') : d.playerColor;
-      const level = Number(d.level) || 3;
+      const chosenBot = d.bot === 'custom' ? null : BOTS[Number(d.bot)];
+      const elo = chosenBot ? chosenBot.elo : clampElo(d.elo);
+      const computer = botName(elo, chosenBot?.name);
       let whiteName;
       let blackName;
       const gameMeta = d.evalBar === 'on' ? { evalBar: true } : {};
       if (d.mode === 'computer') {
-        whiteName = playerColor === 'white' ? user.username : computerName(level);
-        blackName = playerColor === 'black' ? user.username : computerName(level);
-        Object.assign(gameMeta, { playerColor, level });
+        whiteName = playerColor === 'white' ? user.username : computer;
+        blackName = playerColor === 'black' ? user.username : computer;
+        Object.assign(gameMeta, { playerColor, elo, ...(chosenBot ? { bot: chosenBot.name } : {}) });
       } else if (d.mode === 'otb') {
         whiteName = d.whiteName.trim() || 'White';
         blackName = d.blackName.trim() || 'Black';

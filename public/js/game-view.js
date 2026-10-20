@@ -3,7 +3,8 @@ import { Board, makePiece } from './board.js';
 import { api, getSocket } from './api.js';
 import { el, clear, toast } from './dom.js';
 import { saveLocalGame, getLocalGame, deleteLocalGame, newLocalId } from './local-games.js';
-import { LEVELS } from './engine.js';
+import { Engine } from './stockfish.js';
+import { gameElo, isApproximate } from './bots.js';
 import { Evaluator, createEvalBar } from './eval-bar.js';
 import { formatClock, tcDescription } from './time-control.js';
 import { timeoutResult } from './clock-rules.js';
@@ -12,9 +13,6 @@ export const MODE_LABEL = { online: 'Online', computer: 'vs Computer', self: 'Se
 const BROADCAST_MODES = new Set(['computer', 'self', 'otb']);
 const VALUES = { p: 1, n: 3, b: 3, r: 5, q: 9 };
 
-export function computerName(level) {
-  return `Computer (${LEVELS[level]?.name || 'Level ' + level})`;
-}
 
 export function resultText(state) {
   if (state.status === 'aborted') return state.termination === 'broadcast stopped' ? 'Broadcast stopped' : 'Aborted';
@@ -65,7 +63,7 @@ export function mountGameView(root, { user, kind, id, navigate }) {
   let viewPly = null; // null = following the live position
   let pending = false;
   let thinking = false;
-  let worker = null;
+  let bot = null;
   let engineRequest = 0;
   let evaluator = null;
   let orientationSet = false;
@@ -237,8 +235,6 @@ export function mountGameView(root, { user, kind, id, navigate }) {
   function stopEngine() {
     engineRequest++;
     thinking = false;
-    worker?.terminate();
-    worker = null;
   }
 
   async function takeback() {
@@ -315,6 +311,8 @@ export function mountGameView(root, { user, kind, id, navigate }) {
           blackName: state.black.name,
           playerColor: state.meta.playerColor,
           level: state.meta.level,
+          elo: state.meta.elo,
+          bot: state.meta.bot,
           event: state.meta.event,
           evalBar: !!state.meta.evalBar,
           timeControl: state.timeControl || null,
@@ -366,34 +364,30 @@ export function mountGameView(root, { user, kind, id, navigate }) {
     const requestId = ++engineRequest;
     const movesAtRequest = state.moves.length;
     const started = Date.now();
-    if (!worker) worker = new Worker(new URL('./engine-worker.js', import.meta.url), { type: 'module' });
-    worker.onmessage = ({ data }) => {
-      if (data.id !== requestId || destroyed) return;
+    const elo = gameElo(state.meta);
+    bot ||= new Engine();
+    // On the clock, the computer budgets its thinking time like a player would: about 1/40 of its
+    // remaining time plus most of the increment, never more than it would normally take.
+    let timeMs = Engine.thinkTime(elo);
+    if (state.clock) {
+      const left = remainingMs(engineColor());
+      timeMs = Math.max(100, Math.min(timeMs, left / 40 + state.timeControl.increment * 800));
+    }
+    bot.bestMove({ startFen: state.startFen, moves: state.moves, elo, timeMs }).then((move) => {
       // Small minimum delay so instant replies don't feel jarring.
       setTimeout(() => {
         if (requestId !== engineRequest || destroyed) return;
         thinking = false;
-        if (data.error || !data.move) {
-          toast(`Computer error: ${data.error || 'no move'}`, 'error');
-          return render();
-        }
+        if (!move) return render();
         if (state.moves.length !== movesAtRequest) return render();
-        makeMove({ from: data.move.from, to: data.move.to, promotion: data.move.promotion });
+        makeMove(move);
       }, Math.max(0, 350 - (Date.now() - started)));
-    };
-    worker.onerror = (e) => {
+    }).catch((err) => {
+      if (requestId !== engineRequest || destroyed) return;
       thinking = false;
-      toast(`Computer failed to start: ${e.message || 'worker error'}`, 'error');
+      toast(`Computer error: ${err.message}`, 'error');
       render();
-    };
-    // On the clock, the computer budgets its thinking time like a player would.
-    let timeMs;
-    if (state.clock) {
-      const left = remainingMs(engineColor());
-      // About 1/40 of the remaining time plus most of the increment, never more than its level's usual time.
-      timeMs = Math.max(100, Math.min(LEVELS[state.meta.level || 3].timeMs, left / 40 + state.timeControl.increment * 800));
-    }
-    worker.postMessage({ id: requestId, startFen: state.startFen, moves: state.moves, level: state.meta.level || 3, timeMs });
+    });
     render();
   }
 
@@ -613,7 +607,10 @@ export function mountGameView(root, { user, kind, id, navigate }) {
 
     const badges = [el('span', { class: `badge mode-${state.mode}` }, MODE_LABEL[state.mode])];
     if (state.timeControl) badges.push(el('span', { class: 'badge' }, `⏱ ${tcDescription(state.timeControl)}`));
-    if (state.mode === 'computer') badges.push(el('span', { class: 'badge' }, `Level ${state.meta.level}`));
+    if (state.mode === 'computer') {
+      const elo = gameElo(state.meta);
+      badges.push(el('span', { class: 'badge', title: isApproximate(elo) ? 'Approximate rating' : 'Stockfish UCI_Elo' }, `🤖 ${isApproximate(elo) ? '~' : ''}${elo}`));
+    }
     if (state.meta?.evalBar) badges.push(el('span', { class: 'badge' }, 'Eval bar'));
     if (kind === 'local') badges.push(el('span', { class: 'badge private' }, '🔒 Private'));
     else if (state.visibility === 'private') badges.push(el('span', { class: 'badge private' }, '🔒 Private'));
@@ -700,6 +697,7 @@ export function mountGameView(root, { user, kind, id, navigate }) {
   return () => {
     destroyed = true;
     evaluator?.destroy();
+    bot?.terminate();
     clearInterval(clockTimer);
     stopEngine();
     window.removeEventListener('keydown', onKey);

@@ -3,7 +3,7 @@
 A web-based chess club. Members create an account, start or join clubs, and play:
 
 - **Online games against club members** — open challenges or direct challenges, with live updates over WebSockets, draw offers, resignation and abort. Games can be **club-visible** (anyone in the club can spectate) or **private** (only the two players).
-- **Against the computer** — the engine runs entirely in your browser (in a Web Worker); 5 strength levels.
+- **Against the computer** — **Stockfish 19** (WebAssembly) runs entirely in your browser. Pick a named bot (Pip 400 … Gia 2800, Stockfish 3190) or any custom Elo from 400 to 3190. Stockfish's own strength limiter covers 1320 and up; below that the bot searches shallowly and sometimes plays a random move, so those ratings are approximate. If a browser can't run Stockfish, a small built-in engine takes over.
 - **By yourself** — move both sides, for practice or analysis, from the standard position or any FEN.
 - **Real over-the-board games** — enter the moves of a physical game as it is played and declare the result.
 
@@ -11,7 +11,7 @@ A web-based chess club. Members create an account, start or join clubs, and play
 
 Computer, self-play and over-the-board games are **private by default** and live only in your browser. At any point you can **broadcast** one to a club — the server then validates every move and relays it live to spectators — and you can stop broadcasting at any time to continue privately.
 
-The **club view** shows every live game in the club as a board that updates in real time, open challenges, recently finished games and the member list. **Projector view** (`#/tv/<club id>`) shows all live club games full-screen, sized to fill the display — leave it running on a projector or TV at club night. Every game can be reviewed move by move (← / → keys) and exported as PGN. When setting up a game or challenge you can turn on an **evaluation bar**: the in-browser engine assesses the position on the board (following move review too), and everyone watching the game — including the projector view — sees it.
+The **club view** shows every live game in the club as a board that updates in real time, open challenges, recently finished games and the member list. **Projector view** (`#/tv/<club id>`) shows all live club games full-screen, sized to fill the display — leave it running on a projector or TV at club night. Every game can be reviewed move by move (← / → keys) and exported as PGN. When setting up a game or challenge you can turn on an **evaluation bar**: full-strength Stockfish assesses the position on the board (following move review too), and everyone watching the game — including the projector view — sees it.
 
 ## Running
 
@@ -56,6 +56,8 @@ public/
 ## Credits
 
 Chess piece artwork: "Cburnett" set by Colin M. L. Burnett, used under the BSD license.
+
+[Stockfish](https://stockfishchess.org/) is free software under the GNU GPL v3; the app serves the unmodified WebAssembly build from the [`stockfish`](https://github.com/nmrugg/stockfish.js) npm package (by Nathan Rugg and Chess.com), whose source is available at that link. Its license text is served at `/vendor/stockfish/COPYING.txt`.
 
 ## Not yet included
 

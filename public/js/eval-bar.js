@@ -1,15 +1,15 @@
 // Evaluation bar: a vertical White/Black bar fed by the in-browser engine.
 import { el, clear } from './dom.js';
+import { Engine } from './stockfish.js';
 
-/** Runs evaluations one at a time in a dedicated worker, caching results by position. */
+/** Runs evaluations one at a time with full-strength Stockfish, caching results by position. */
 export class Evaluator {
   constructor({ timeMs = 800 } = {}) {
     this.timeMs = timeMs;
     this.cache = new Map();
     this.queue = [];
     this.busy = false;
-    this.nextId = 0;
-    this.worker = null;
+    this.engine = null;
   }
 
   /** Resolves with { cp, mate } for the position after `moves`; `key` lets a newer request replace a queued older one. */
@@ -28,26 +28,27 @@ export class Evaluator {
     });
   }
 
-  _pump() {
+  async _pump() {
     if (this.busy || !this.queue.length) return;
     const job = this.queue.shift();
     this.busy = true;
-    if (!this.worker) this.worker = new Worker(new URL('./engine-worker.js', import.meta.url), { type: 'module' });
-    const id = ++this.nextId;
-    this.worker.onmessage = ({ data }) => {
-      if (data.id !== id) return;
-      this.busy = false;
-      const result = data.error ? null : { cp: data.cp, mate: data.mate };
-      if (result) this.cache.set(job.cacheKey, result);
-      job.resolve(result);
-      this._pump();
-    };
-    this.worker.postMessage({ id, type: 'eval', startFen: job.startFen, moves: job.moves, timeMs: this.timeMs });
+    this.engine ||= new Engine();
+    let result = null;
+    try {
+      result = await this.engine.evaluate({ startFen: job.startFen, moves: job.moves, timeMs: this.timeMs });
+    } catch {
+      result = null;
+    }
+    if (!this.engine) return; // destroyed meanwhile
+    this.busy = false;
+    if (result) this.cache.set(job.cacheKey, result);
+    job.resolve(result);
+    this._pump();
   }
 
   destroy() {
-    this.worker?.terminate();
-    this.worker = null;
+    this.engine?.terminate();
+    this.engine = null;
     for (const job of this.queue) job.resolve(null);
     this.queue = [];
   }

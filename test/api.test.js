@@ -313,3 +313,23 @@ test('timed broadcast computer game continues from the broadcaster clock reading
   assert.ok(resumed.clock.black <= 160000 && resumed.clock.black > 159000);
   assert.equal(resumed.clock.white, 150000);
 });
+
+test('computer games store the bot Elo; Stockfish files are served', async () => {
+  const a = await registered('botfan');
+  const club = (await a.post('/api/clubs', { name: 'Bots' })).body.club;
+  const g = (await a.post(`/api/clubs/${club.id}/games`, { mode: 'computer', elo: 2100, bot: 'Eva', blackName: 'Eva (2100)' })).body.game;
+  assert.equal(g.meta.elo, 2100);
+  assert.equal(g.meta.bot, 'Eva');
+  const clamped = (await a.post(`/api/clubs/${club.id}/games`, { mode: 'computer', elo: 99999 })).body.game;
+  assert.equal(clamped.meta.elo, 3190);
+  const legacy = (await a.post(`/api/clubs/${club.id}/games`, { mode: 'computer', level: 4 })).body.game;
+  assert.equal(legacy.meta.level, 4);
+
+  const js = await fetch(`${base}/vendor/stockfish/stockfish-19-lite-single.js`);
+  assert.equal(js.status, 200);
+  const wasm = await fetch(`${base}/vendor/stockfish/stockfish-19-lite-single.wasm`);
+  assert.equal(wasm.status, 200);
+  assert.equal(wasm.headers.get('content-type'), 'application/wasm');
+  assert.equal((await fetch(`${base}/vendor/stockfish/stockfish-19.wasm`)).status, 404);
+  assert.equal((await fetch(`${base}/vendor/stockfish/..%2fpackage.json`)).status, 404);
+});
