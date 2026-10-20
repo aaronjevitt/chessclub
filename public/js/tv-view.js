@@ -4,10 +4,13 @@ import { api, getSocket } from './api.js';
 import { el, clear } from './dom.js';
 import { renderMiniBoard } from './board.js';
 import { MODE_LABEL, resultText } from './game-view.js';
+import { Evaluator, createEvalBar } from './eval-bar.js';
 
 // Finished games stay on screen this long so the room can see the result.
 const SHOW_FINISHED_MS = 3 * 60 * 1000;
 const GAP = 20;
+// Width of the eval bar plus its gap, relative to the board size (see .tv-board-row in style.css).
+const EVAL_BAR_WIDTH = 0.07;
 
 function boardDecorations(game) {
   const chess = new Chess(game.startFen);
@@ -30,14 +33,15 @@ function playerRow(game, color) {
     el('span', { class: 'tv-name' }, side.name || '?'));
 }
 
-function tile(game) {
+function tile(game, evalBar) {
   const moveNo = Math.ceil(game.moves.length / 2);
   const board = renderMiniBoard(game.fen, 'white', boardDecorations(game));
   const result = resultText(game);
+  const boardEl = el('div', { class: 'tv-board' }, board,
+    result ? el('div', { class: 'tv-result' }, el('strong', {}, game.result.replace('1/2', '½')), el('span', {}, result)) : null);
   return el('a', { href: `#/game/${game.id}`, class: `tv-tile ${game.status !== 'active' ? 'finished' : ''}` },
     playerRow(game, 'b'),
-    el('div', { class: 'tv-board' }, board,
-      result ? el('div', { class: 'tv-result' }, el('strong', {}, game.result.replace('1/2', '½')), el('span', {}, result)) : null),
+    evalBar ? el('div', { class: 'tv-board-row' }, evalBar.el, boardEl) : boardEl,
     playerRow(game, 'w'),
     el('div', { class: 'tv-meta' }, MODE_LABEL[game.mode], moveNo ? ` · move ${moveNo}` : ''));
 }
@@ -63,6 +67,26 @@ export async function mountTvView(root, clubId) {
   document.body.classList.add('tv-mode');
 
   let games = [];
+  const evaluator = new Evaluator({ timeMs: 700 });
+  // One bar per game, reused across re-renders so it animates from its previous value.
+  const evalBars = new Map();
+
+  function evalBarFor(game) {
+    if (!game.meta?.evalBar) return null;
+    let bar = evalBars.get(game.id);
+    if (!bar) {
+      bar = createEvalBar();
+      evalBars.set(game.id, bar);
+    }
+    const key = game.moves.length;
+    bar.el.dataset.key = key;
+    evaluator.evaluate(`game:${game.id}`, game.startFen, game.moves).then((r) => {
+      if (r && bar.el.dataset.key === String(key)) bar.set(r);
+    });
+    return bar;
+  }
+
+  const hasEvalBars = () => games.some((g) => g.meta?.evalBar);
 
   function layout() {
     const n = games.length;
@@ -75,13 +99,14 @@ export async function mountTvView(root, clubId) {
     let best = { size: 0, cols: 1 };
     for (let cols = 1; cols <= n; cols++) {
       const rows = Math.ceil(n / cols);
-      const byWidth = (width - GAP * (cols - 1)) / cols;
+      const byWidth = (width - GAP * (cols - 1)) / cols / (hasEvalBars() ? 1 + EVAL_BAR_WIDTH : 1);
       const byHeight = (height - GAP * (rows - 1)) / rows / 1.22;
       const size = Math.floor(Math.min(byWidth, byHeight));
       if (size > best.size) best = { size, cols };
     }
     grid.style.setProperty('--tv-board', `${best.size}px`);
-    grid.style.gridTemplateColumns = `repeat(${best.cols}, ${best.size}px)`;
+    const tileWidth = Math.floor(best.size * (hasEvalBars() ? 1 + EVAL_BAR_WIDTH : 1));
+    grid.style.gridTemplateColumns = `repeat(${best.cols}, ${tileWidth}px)`;
   }
 
   function render() {
@@ -97,7 +122,8 @@ export async function mountTvView(root, clubId) {
         el('div', { class: 'muted' }, 'Live club games will appear here automatically.')));
       return;
     }
-    clear(grid, games.map(tile));
+    for (const id of evalBars.keys()) if (!games.some((g) => g.id === id)) evalBars.delete(id);
+    clear(grid, games.map((g) => tile(g, evalBarFor(g))));
     layout();
   }
 
@@ -135,6 +161,7 @@ export async function mountTvView(root, clubId) {
   return () => {
     clearTimeout(timer);
     clearInterval(tick);
+    evaluator.destroy();
     window.removeEventListener('resize', layout);
     document.body.classList.remove('tv-mode');
     socket.emit('unwatch:club', club.id);

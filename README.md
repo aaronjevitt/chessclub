@@ -9,7 +9,7 @@ A web-based chess club. Members create an account, start or join clubs, and play
 
 Computer, self-play and over-the-board games are **private by default** and live only in your browser. At any point you can **broadcast** one to a club — the server then validates every move and relays it live to spectators — and you can stop broadcasting at any time to continue privately.
 
-The **club view** shows every live game in the club as a board that updates in real time, open challenges, recently finished games and the member list. **Projector view** (`#/tv/<club id>`) shows all live club games full-screen, sized to fill the display — leave it running on a projector or TV at club night. Every game can be reviewed move by move (← / → keys) and exported as PGN.
+The **club view** shows every live game in the club as a board that updates in real time, open challenges, recently finished games and the member list. **Projector view** (`#/tv/<club id>`) shows all live club games full-screen, sized to fill the display — leave it running on a projector or TV at club night. Every game can be reviewed move by move (← / → keys) and exported as PGN. When setting up a game or challenge you can turn on an **evaluation bar**: the in-browser engine assesses the position on the board (following move review too), and everyone watching the game — including the projector view — sees it.
 
 ## Running
 

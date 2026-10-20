@@ -323,7 +323,7 @@ export function createServer({ dbFile = path.join(ROOT, 'data', 'chessclub.db') 
         club.id, 'online', visibility, 'waiting', me.id,
         color === 'white' ? me.id : null, color === 'black' ? me.id : null,
         color === 'white' ? me.username : null, color === 'black' ? me.username : null,
-        color, invitedId, START_FEN, START_FEN, '[]', '*', null, '{}', now, now,
+        color, invitedId, START_FEN, START_FEN, '[]', '*', null, JSON.stringify({ evalBar: body.evalBar === true }), now, now,
       );
       const state = notify(Number(lastInsertRowid));
       return res.status(201).json({ game: state });
@@ -349,6 +349,7 @@ export function createServer({ dbFile = path.join(ROOT, 'data', 'chessclub.db') 
       }
       if (body.localId) meta.localId = cleanText(body.localId, 64);
       if (mode === 'otb') meta.event = cleanText(body.event, 80);
+      if (body.evalBar === true) meta.evalBar = true;
       const over = gameOverInfo(chess);
       const { lastInsertRowid } = q.insertGame.run(
         club.id, mode, 'club', over ? 'finished' : 'active', me.id,

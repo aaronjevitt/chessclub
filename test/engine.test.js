@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { Chess } from 'chess.js';
-import { findBestMove, evaluate, LEVELS } from '../public/js/engine.js';
+import { findBestMove, evaluate, evaluatePosition, LEVELS } from '../public/js/engine.js';
 
 test('chess.js internals used by the engine are present', () => {
   const chess = new Chess();
@@ -59,4 +59,15 @@ test('every level returns a legal move quickly from the start', () => {
     const { move } = findBestMove(chess, { level: Number(level), timeMs: 300 });
     assert.ok(chess.moves().includes(move.san), `level ${level}: ${move.san}`);
   }
+});
+
+test('evaluatePosition reports from White\'s point of view, including mates', () => {
+  assert.equal(evaluatePosition(new Chess('r1bqkb1r/pppp1ppp/2n2n2/4p2Q/2B1P3/8/PPPP1PPP/RNB1K1NR w KQkq - 4 4'), { timeMs: 300 }).mate, 1);
+  assert.equal(evaluatePosition(new Chess('rnbqkbnr/pppp1ppp/8/4p3/6P1/5P2/PPPPP2P/RNBQKBNR b KQkq - 0 2'), { timeMs: 300 }).mate, -1);
+  const mated = evaluatePosition(new Chess('rnb1kbnr/pppp1ppp/8/4p3/6Pq/5P2/PPPPP2P/RNBQKBNR w KQkq - 1 3'));
+  assert.equal(mated.mate, 0);
+  assert.ok(mated.cp < 0);
+  // Black to move but a queen down: still clearly better for White.
+  assert.ok(evaluatePosition(new Chess('4k3/8/8/8/8/8/8/Q3K3 b - - 0 1'), { timeMs: 200 }).cp > 500);
+  assert.equal(evaluatePosition(new Chess('7k/5Q2/6K1/8/8/8/8/8 b - - 0 1')).cp, 0); // stalemate
 });

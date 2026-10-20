@@ -218,6 +218,7 @@ function challengeRow(g, refresh) {
     el('div', {},
       el('strong', {}, mine ? (g.invitedName ? `You challenged ${g.invitedName}` : 'Your open challenge') : `${g.creatorName} challenges ${forMe ? 'you' : 'anyone'}`),
       g.visibility === 'private' ? el('span', { class: 'badge private' }, '🔒 Private') : null,
+      g.meta?.evalBar ? el('span', { class: 'badge' }, 'Eval bar') : null,
       el('div', { class: 'muted small' }, `${colorText} · ${g.clubName} · ${timeAgo(g.createdAt)}`)),
     el('div', { class: 'row' },
       mine ? el('button', { type: 'button', class: 'btn small', onclick: act('cancel') }, 'Cancel') : null,
@@ -273,6 +274,7 @@ async function clubView(clubId) {
     field('Visibility', el('select', { name: 'visibility' },
       el('option', { value: 'club' }, 'Club — members can watch live'),
       el('option', { value: 'private' }, 'Private — only the two players'))),
+    el('label', { class: 'check' }, el('input', { type: 'checkbox', name: 'evalBar' }), ' Show evaluation bar (visible to both players)'),
     el('button', { type: 'submit', class: 'btn primary' }, 'Create challenge'));
   challengeForm.addEventListener('submit', (e) => {
     e.preventDefault();
@@ -280,7 +282,13 @@ async function clubView(clubId) {
       const d = formData(challengeForm);
       const { game } = await api(`/clubs/${club.id}/games`, {
         method: 'POST',
-        body: { mode: 'online', color: d.color, visibility: d.visibility, opponentId: d.opponentId ? Number(d.opponentId) : null },
+        body: {
+          mode: 'online',
+          color: d.color,
+          visibility: d.visibility,
+          opponentId: d.opponentId ? Number(d.opponentId) : null,
+          evalBar: d.evalBar === 'on',
+        },
       });
       toast(game.invitedName ? `Challenge sent to ${game.invitedName}` : 'Open challenge posted');
       loadGames();
@@ -426,6 +434,8 @@ async function newGameView(params) {
       modeOption('self', '♟ Play yourself', 'Move both sides — practice or analysis'),
       modeOption('otb', '📋 Real game', 'Record / broadcast an over-the-board game')),
     computerFields, otbFields,
+    el('label', { class: 'check' }, el('input', { type: 'checkbox', name: 'evalBar' }),
+      ' Show evaluation bar ', el('span', { class: 'muted small' }, '(engine assessment beside the board — spectators see it too)')),
     el('details', {},
       el('summary', {}, 'Custom starting position'),
       field('FEN', el('input', { name: 'fen', placeholder: START_FEN, spellcheck: 'false' }), 'Leave empty for the standard starting position.')),
@@ -457,7 +467,7 @@ async function newGameView(params) {
       const level = Number(d.level) || 3;
       let whiteName;
       let blackName;
-      const gameMeta = {};
+      const gameMeta = d.evalBar === 'on' ? { evalBar: true } : {};
       if (d.mode === 'computer') {
         whiteName = playerColor === 'white' ? user.username : computerName(level);
         blackName = playerColor === 'black' ? user.username : computerName(level);

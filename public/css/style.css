@@ -295,7 +295,7 @@ body.tv-mode main { max-width: none; padding: 0; }
   flex: 1; min-height: 0; display: grid; gap: 20px; padding: 20px;
   justify-content: center; align-content: center; --tv-board: 300px;
 }
-.tv-tile { display: flex; flex-direction: column; color: var(--text); width: var(--tv-board); }
+.tv-tile { display: flex; flex-direction: column; color: var(--text); min-width: var(--tv-board); }
 .tv-tile:hover { text-decoration: none; }
 .tv-board { position: relative; width: var(--tv-board); height: var(--tv-board); }
 .tv-board .board { box-shadow: 0 4px 18px rgba(0, 0, 0, .25); border-radius: 6px; }
@@ -317,3 +317,26 @@ body.tv-mode main { max-width: none; padding: 0; }
 .tv-empty { grid-column: 1 / -1; text-align: center; font-size: clamp(1.4rem, 3vw, 2.6rem); font-weight: 700; display: flex; flex-direction: column; gap: .4rem; }
 .tv-empty .muted { font-size: .5em; font-weight: 400; }
 .tv-empty-icon { font-size: 3em; color: var(--accent); line-height: 1; }
+
+/* ---------- evaluation bar ---------- */
+.board-row { display: flex; gap: 8px; align-items: stretch; }
+.board-row .board-wrap { flex: 1; min-width: 0; }
+.eval-bar {
+  position: relative; flex: none; width: 24px; border-radius: 4px; overflow: hidden;
+  background: #403d39; display: flex; flex-direction: column; justify-content: flex-end;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, .2);
+}
+.eval-bar[hidden] { display: none; }
+.eval-bar.flipped { flex-direction: column-reverse; justify-content: flex-start; }
+.eval-white { background: #f4f2ee; height: 50%; transition: height .45s ease; }
+.eval-bar.pending .eval-white { opacity: .85; }
+.eval-label {
+  position: absolute; left: 0; right: 0; text-align: center; font-size: 10px; font-weight: 800;
+  font-variant-numeric: tabular-nums; color: #f4f2ee; letter-spacing: -.3px;
+}
+.eval-label.on-white { color: #403d39; }
+.eval-label.bottom { bottom: 4px; }
+.eval-label.top { top: 4px; }
+.tv-board-row { display: flex; gap: calc(var(--tv-board) * .02); }
+.tv-board-row .eval-bar { width: calc(var(--tv-board) * .05); }
+.tv-board-row .eval-label { font-size: max(10px, calc(var(--tv-board) * .026)); }

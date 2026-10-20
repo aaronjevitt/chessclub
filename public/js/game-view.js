@@ -4,6 +4,7 @@ import { api, getSocket } from './api.js';
 import { el, clear, toast } from './dom.js';
 import { saveLocalGame, getLocalGame, deleteLocalGame, newLocalId } from './local-games.js';
 import { LEVELS } from './engine.js';
+import { Evaluator, createEvalBar } from './eval-bar.js';
 
 export const MODE_LABEL = { online: 'Online', computer: 'vs Computer', self: 'Self-play', otb: 'Over the board' };
 const BROADCAST_MODES = new Set(['computer', 'self', 'otb']);
@@ -64,6 +65,7 @@ export function mountGameView(root, { user, kind, id, navigate }) {
   let thinking = false;
   let worker = null;
   let engineRequest = 0;
+  let evaluator = null;
   let orientationSet = false;
   let myClubs = [];
   let destroyed = false;
@@ -72,6 +74,8 @@ export function mountGameView(root, { user, kind, id, navigate }) {
   const topBar = el('div', { class: 'player-bar' });
   const bottomBar = el('div', { class: 'player-bar' });
   const boardWrap = el('div', { class: 'board-wrap' });
+  const evalBar = createEvalBar();
+  evalBar.el.hidden = true;
   const meta = el('div', { class: 'game-meta' });
   const status = el('div', { class: 'status' });
   const notice = el('div', { class: 'notice-area' });
@@ -81,7 +85,7 @@ export function mountGameView(root, { user, kind, id, navigate }) {
   const broadcast = el('div', { class: 'broadcast-panel' });
 
   clear(root, el('div', { class: 'game-layout' },
-    el('div', { class: 'board-col' }, topBar, boardWrap, bottomBar),
+    el('div', { class: 'board-col' }, topBar, el('div', { class: 'board-row' }, evalBar.el, boardWrap), bottomBar),
     el('aside', { class: 'side-panel card' }, meta, status, notice, moveList, nav, controls, broadcast),
   ));
 
@@ -243,6 +247,7 @@ export function mountGameView(root, { user, kind, id, navigate }) {
           playerColor: state.meta.playerColor,
           level: state.meta.level,
           event: state.meta.event,
+          evalBar: !!state.meta.evalBar,
           localId: state.id,
         },
       });
@@ -396,7 +401,10 @@ export function mountGameView(root, { user, kind, id, navigate }) {
   }
 
   function renderControls() {
-    const items = [button('⇅ Flip', () => board.flip(), { class: 'btn ghost' })];
+    const items = [button('⇅ Flip', () => {
+      board.flip();
+      render();
+    }, { class: 'btn ghost' })];
     const active = state.status === 'active';
     if (state.mode === 'online' && kind === 'server') {
       const mine = myOnlineColor();
@@ -474,6 +482,22 @@ export function mountGameView(root, { user, kind, id, navigate }) {
       el('div', { class: 'row' }, select, button('📡 Broadcast', () => startBroadcast(select.value), { class: 'btn primary' })));
   }
 
+  /** Evaluate the position on the board (live or under review) when the game has the eval bar enabled. */
+  function updateEvalBar(ply) {
+    evalBar.el.hidden = !state.meta?.evalBar;
+    if (!state.meta?.evalBar) return;
+    evalBar.setOrientation(board.orientation);
+    evaluator ||= new Evaluator({ timeMs: 900 });
+    const moves = state.moves.slice(0, ply);
+    const key = `${state.startFen}|${moves.join(' ')}`;
+    evalBar.el.dataset.key = key;
+    evalBar.set(null);
+    evaluator.evaluate('board', state.startFen, moves).then((result) => {
+      // Ignore results for a position that is no longer on the board.
+      if (result && !destroyed && evalBar.el.dataset.key === key) evalBar.set(result);
+    });
+  }
+
   function render() {
     if (!state || destroyed) return;
     const live = viewPly === null;
@@ -494,6 +518,7 @@ export function mountGameView(root, { user, kind, id, navigate }) {
     const history = chess.history({ verbose: true });
     const last = history[history.length - 1];
     board.setPosition(chess, last ? { from: last.from, to: last.to } : null);
+    updateEvalBar(ply);
 
     const bottomColor = board.orientation === 'white' ? 'w' : 'b';
     playerBar(bottomBar, bottomColor, chess);
@@ -501,6 +526,7 @@ export function mountGameView(root, { user, kind, id, navigate }) {
 
     const badges = [el('span', { class: `badge mode-${state.mode}` }, MODE_LABEL[state.mode])];
     if (state.mode === 'computer') badges.push(el('span', { class: 'badge' }, `Level ${state.meta.level}`));
+    if (state.meta?.evalBar) badges.push(el('span', { class: 'badge' }, 'Eval bar'));
     if (kind === 'local') badges.push(el('span', { class: 'badge private' }, '🔒 Private'));
     else if (state.visibility === 'private') badges.push(el('span', { class: 'badge private' }, '🔒 Private'));
     if (kind === 'server' && state.status === 'active') badges.push(el('span', { class: 'badge live' }, '● Live'));
@@ -584,6 +610,7 @@ export function mountGameView(root, { user, kind, id, navigate }) {
 
   return () => {
     destroyed = true;
+    evaluator?.destroy();
     stopEngine();
     window.removeEventListener('keydown', onKey);
     document.title = 'Chess Club';

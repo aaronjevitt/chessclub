@@ -333,3 +333,20 @@ export function findBestMove(chess, options = {}) {
   chess.undo();
   return { move, score: bestScore, depth: completedDepth, nodes };
 }
+
+/**
+ * Evaluate a position for an evaluation bar, from White's point of view.
+ * @returns { cp, mate, depth } — cp in centipawns; mate is moves to mate (positive: White mates,
+ *          negative: Black mates, 0: the side to move is already mated) or null.
+ */
+export function evaluatePosition(chess, { timeMs = 800 } = {}) {
+  const sign = chess.turn() === 'w' ? 1 : -1;
+  if (chess.isCheckmate()) return { cp: -sign * MATE, mate: 0, depth: 0, winner: sign > 0 ? 'b' : 'w' };
+  if (chess.isDraw()) return { cp: 0, mate: null, depth: 0 };
+  const { score, depth } = findBestMove(chess, { maxDepth: 32, timeMs, noise: 0 });
+  if (Math.abs(score) > MATE - 1000) {
+    const moves = Math.ceil((MATE - Math.abs(score)) / 2);
+    return { cp: sign * score, mate: sign * Math.sign(score) * moves, depth };
+  }
+  return { cp: sign * score, mate: null, depth };
+}
