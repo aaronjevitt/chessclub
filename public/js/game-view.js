@@ -8,7 +8,7 @@ import { gameElo, isApproximate } from './bots.js';
 import { Evaluator, createEvalBar } from './eval-bar.js';
 import { formatClock, tcDescription } from './time-control.js';
 import { timeoutResult } from './clock-rules.js';
-import { reviewGame, whiteWinPercent, RETRY_LABELS, LABELS } from './review.js';
+import { reviewGame, whiteWinPercent, labelForLoss, RETRY_LABELS, LABELS } from './review.js';
 import { loadOpeningBook, labelIcon, explainMove, renderSummary, renderGraph } from './review-view.js';
 
 const ANALYSIS_MS = 350;
@@ -105,10 +105,17 @@ export function mountGameView(root, { user, kind, id, navigate }) {
   ));
 
   const board = new Board(boardWrap, {
-    canMove: (color) => (review?.retry
-      ? !review.retry.done && !review.retry.busy && !review.retry.solved && color === review.retry.color
-      : viewPly === null && !pending && !thinking && canMoveColor(color)),
-    onMove: (from, to, promotion) => (review?.retry ? retryMove({ from, to, promotion }) : makeMove({ from, to, promotion })),
+    canMove: (color) => {
+      if (review?.retry) return !review.retry.done && !review.retry.busy && !review.retry.solved && color === review.retry.color;
+      if (review) return true; // explore: try moves for either side
+      return viewPly === null && !pending && !thinking && canMoveColor(color);
+    },
+    onMove: (from, to, promotion) => {
+      const move = { from, to, promotion };
+      if (review?.retry) return retryMove(move);
+      if (review) return exploreMove(move);
+      return makeMove(move);
+    },
   });
 
   // ---------- roles ----------
@@ -440,6 +447,7 @@ export function mountGameView(root, { user, kind, id, navigate }) {
     if (state.status === 'waiting') return 'Waiting for an opponent to accept the challenge';
     if (state.status === 'paused') return 'Broadcast paused — it will continue here if the broadcaster resumes it';
     if (review?.retry) return 'Retry mistakes';
+    if (review?.explore) return 'Exploring a different line';
     if (review) return `Game review — ${resultText(state) || ''}`;
     const res = resultText(state);
     if (res) return res;
@@ -488,6 +496,7 @@ export function mountGameView(root, { user, kind, id, navigate }) {
   }
 
   function setViewPly(ply) {
+    if (review?.explore) review.explore = null; // stepping through the game leaves an explored line
     if (ply !== null) ply = Math.max(0, Math.min(state.moves.length, ply));
     viewPly = ply === state.moves.length ? null : ply;
     render();
@@ -784,6 +793,138 @@ export function mountGameView(root, { user, kind, id, navigate }) {
     render();
   }
 
+  // ---------- explore: try your own moves during a review ----------
+  // review.explore = {basePly, line}: SAN moves played on the board from game position `basePly`.
+  // Explored positions are analysed on demand (cached by move list); game positions come from the review.
+
+  const exploreCache = new Map();
+
+  function exploreMoves() {
+    return [...state.moves.slice(0, review.explore.basePly), ...review.explore.line];
+  }
+
+  /** Stored or cached analysis for the position after `moves`; null while still being analysed. */
+  function analysisFor(moves) {
+    if (moves.length <= state.moves.length && moves.every((m, i) => m === state.moves[i])) return review.positions[moves.length];
+    const key = moves.join(' ');
+    if (!exploreCache.has(key)) {
+      exploreCache.set(key, null);
+      reviewEngine ||= new Engine();
+      reviewEngine.analysePosition({ startFen: state.startFen, moves, timeMs: 600 })
+        .then((p) => {
+          exploreCache.set(key, p);
+          if (!destroyed && review?.explore) render();
+        })
+        .catch(() => exploreCache.delete(key));
+    }
+    return exploreCache.get(key);
+  }
+
+  function exploreMove(move) {
+    const basePly = review.explore ? review.explore.basePly : viewPly ?? state.moves.length;
+    const line = review.explore ? review.explore.line : [];
+    const chess = buildChess({ ...state, moves: [...state.moves.slice(0, basePly), ...line] });
+    let san;
+    try {
+      san = chess.move(move).san;
+    } catch {
+      return render();
+    }
+    // Playing the move that was played in the game just continues along the game.
+    if (!review.explore && state.moves[basePly] === san) return setViewPly(basePly + 1);
+    review.explore = { basePly, line: [...line, san] };
+    render();
+  }
+
+  function exploreUndo() {
+    const { basePly, line } = review.explore;
+    if (line.length > 1) review.explore = { basePly, line: line.slice(0, -1) };
+    else review.explore = null;
+    render();
+  }
+
+  /** Let Stockfish play the next move of the explored line. */
+  async function exploreBest() {
+    const moves = review.explore ? exploreMoves() : state.moves.slice(0, viewPly ?? state.moves.length);
+    let a = analysisFor(moves);
+    if (!a) {
+      reviewEngine ||= new Engine();
+      a = await reviewEngine.analysePosition({ startFen: state.startFen, moves, timeMs: 600 });
+      exploreCache.set(moves.join(' '), a);
+    }
+    if (!review || !a?.best) return;
+    exploreMove({ from: a.best.slice(0, 2), to: a.best.slice(2, 4), promotion: a.best[4] });
+  }
+
+  function leaveExplore() {
+    review.explore = null;
+    render();
+  }
+
+  /** Review-style verdict on the last explored move, once both positions are analysed. */
+  function exploredVerdict() {
+    const moves = exploreMoves();
+    const before = analysisFor(moves.slice(0, -1));
+    const after = analysisFor(moves);
+    if (!before || !after) return null;
+    const chess = buildChess({ ...state, moves: moves.slice(0, -1) });
+    const fenBefore = chess.fen();
+    const played = chess.move(moves.at(-1));
+    const mine = (w) => (played.color === 'w' ? w : 100 - w);
+    const uci = played.from + played.to + (played.promotion || '');
+    const loss = Math.max(0, mine(whiteWinPercent(before)) - mine(whiteWinPercent(after)));
+    const label = labelForLoss(loss, before.best === uci);
+    let bestSan = null;
+    if (before.best && before.best !== uci) {
+      try {
+        bestSan = new Chess(fenBefore).move({ from: before.best.slice(0, 2), to: before.best.slice(2, 4), promotion: before.best[4] }).san;
+      } catch {
+        bestSan = null;
+      }
+    }
+    return { ply: moves.length, san: played.san, to: played.to, label, bestUci: before.best, bestSan };
+  }
+
+  function exploreAnnotations() {
+    const v = exploredVerdict();
+    if (!v) return {};
+    const info = LABELS[v.label];
+    const arrows = v.label !== 'best' && v.bestUci ? [{ from: v.bestUci.slice(0, 2), to: v.bestUci.slice(2, 4), color: '#4a9e5c' }] : [];
+    return { arrows, badges: [{ square: v.to, symbol: info.symbol, color: info.color, title: info.name }] };
+  }
+
+  function exploreExplanation() {
+    const v = exploredVerdict();
+    if (!v) return 'Analysing…';
+    const moves = exploreMoves();
+    return [labelIcon(v.label, { small: true }), explainMove(v, [...Array(moves.length - 1).fill(null), analysisFor(moves.slice(0, -1))])];
+  }
+
+  /** "15. Nf3 Nc6 16. Bb5" for the explored line. */
+  function exploreLineText() {
+    const { basePly, line } = review.explore;
+    const start = new Chess(state.startFen);
+    let num = start.moveNumber() + Math.floor((basePly + (start.turn() === 'b' ? 1 : 0)) / 2);
+    let white = (basePly % 2 === 0) === (start.turn() === 'w');
+    const parts = [];
+    line.forEach((san, i) => {
+      if (white) parts.push(`${num}.`);
+      else if (i === 0) parts.push(`${num}…`);
+      parts.push(san);
+      if (!white) num++;
+      white = !white;
+    });
+    return parts.join(' ');
+  }
+
+  function exploreButtons(cls = 'btn small') {
+    return [
+      button('↶ Undo', exploreUndo, { class: cls, title: 'Take back the last explored move' }),
+      button('Best move', exploreBest, { class: cls, title: "Play Stockfish's best move" }),
+      button('Back to game', leaveExplore, { class: `${cls} primary` }),
+    ];
+  }
+
   function renderReviewPanel() {
     if (analysing) {
       const pct = Math.round((analysing.done / analysing.total) * 100);
@@ -820,12 +961,21 @@ export function mountGameView(root, { user, kind, id, navigate }) {
     clear(reviewPanel,
       renderSummary(review.data, state, { open: wasOpen ?? !smallScreen() }),
       renderGraph(review.data, current, (ply) => setViewPly(ply)),
-      el('div', { class: 'review-explain' },
-        m ? [labelIcon(m.label), ' ', explainMove(m, review.positions)] : 'Starting position. Step through the moves, or jump to the key moments.'),
-      el('div', { class: 'row review-actions' },
-        button('◀ Key moment', () => jumpKeyMoment(-1), { class: 'btn small' }),
-        button('Key moment ▶', () => jumpKeyMoment(1), { class: 'btn small' }),
-        button('🎯 Retry mistakes', startRetry, { class: 'btn small primary' })));
+      review.explore
+        ? el('div', { class: 'explore-box' },
+          el('div', { class: 'muted small' }, `Exploring from move ${Math.ceil(review.explore.basePly / 2) || 1} — not part of the game`),
+          el('div', { class: 'explore-line' }, exploreLineText()),
+          el('div', { class: 'review-explain explore-explain' }, exploreExplanation()),
+          el('div', { class: 'row' }, exploreButtons()))
+        : [
+          el('div', { class: 'review-explain' },
+            m ? [labelIcon(m.label), ' ', explainMove(m, review.positions)] : 'Starting position. Step through the moves, or jump to the key moments.'),
+          el('div', { class: 'muted small explore-hint' }, 'Tip: make a move on the board to explore what would have happened.'),
+          el('div', { class: 'row review-actions' },
+            button('◀ Key moment', () => jumpKeyMoment(-1), { class: 'btn small' }),
+            button('Key moment ▶', () => jumpKeyMoment(1), { class: 'btn small' }),
+            button('Best move', exploreBest, { class: 'btn small', title: "Try Stockfish's best move here" }),
+            button('🎯 Retry mistakes', startRetry, { class: 'btn small primary' }))]);
   }
 
   function renderReviewDock() {
@@ -835,6 +985,11 @@ export function mountGameView(root, { user, kind, id, navigate }) {
     if (!show) return clear(reviewDock);
     const current = viewPly ?? state.moves.length;
     const m = reviewedMove(current);
+    if (review.explore) {
+      return clear(reviewDock,
+        el('div', { class: 'dock-explain' }, el('span', { class: 'muted' }, `${exploreLineText()} · `), exploreExplanation()),
+        el('div', { class: 'dock-nav explore' }, exploreButtons('btn')));
+    }
     clear(reviewDock,
       el('div', { class: 'dock-explain' }, m ? [labelIcon(m.label, { small: true }), explainMove(m, review.positions)] : 'Starting position'),
       el('div', { class: 'dock-nav' },
@@ -846,6 +1001,14 @@ export function mountGameView(root, { user, kind, id, navigate }) {
 
   /** Evaluate the position on the board (live or under review) when the game has the eval bar enabled. */
   function updateEvalBar(ply) {
+    if (review?.explore) {
+      evalBar.el.hidden = false;
+      evalBar.setOrientation(board.orientation);
+      const p = analysisFor(exploreMoves());
+      evalBar.el.dataset.key = `explore:${exploreMoves().join(' ')}`;
+      evalBar.set(p ? { cp: p.cp, mate: p.mate } : null);
+      return;
+    }
     if (review && !review.retry) {
       // During review the analysis already has every position's evaluation.
       evalBar.el.hidden = false;
@@ -878,7 +1041,7 @@ export function mountGameView(root, { user, kind, id, navigate }) {
     const ply = live ? state.moves.length : viewPly;
     let chess;
     try {
-      chess = buildChess(state, ply);
+      chess = review?.explore ? buildChess({ ...state, moves: exploreMoves() }) : buildChess(state, ply);
     } catch {
       clear(status, 'This game has an invalid move list.');
       return;
@@ -898,7 +1061,7 @@ export function mountGameView(root, { user, kind, id, navigate }) {
       board.setAnnotations({ arrows: r.attempt ? [] : solution });
       board.setPosition(shown, r.attempt && h ? { from: h.from, to: h.to } : null);
     } else {
-      board.setAnnotations(review ? reviewAnnotations(ply) : {});
+      board.setAnnotations(review?.explore ? exploreAnnotations() : review ? reviewAnnotations(ply) : {});
       const history = chess.history({ verbose: true });
       const last = history[history.length - 1];
       board.setPosition(chess, last ? { from: last.from, to: last.to } : null);
@@ -953,7 +1116,9 @@ export function mountGameView(root, { user, kind, id, navigate }) {
 
   function onKey(e) {
     if (!state || e.target.closest('input, textarea, select')) return;
-    if (e.key === 'ArrowLeft') setViewPly((viewPly ?? state.moves.length) - 1);
+    if (review?.explore && e.key === 'ArrowLeft') exploreUndo();
+    else if (review?.explore && e.key === 'ArrowRight') exploreBest();
+    else if (e.key === 'ArrowLeft') setViewPly((viewPly ?? state.moves.length) - 1);
     else if (e.key === 'ArrowRight') setViewPly((viewPly ?? state.moves.length) + 1);
     else return;
     e.preventDefault();

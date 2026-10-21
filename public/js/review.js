@@ -49,6 +49,16 @@ function second(p) {
   return p.alt ? { cp: p.cp2, mate: p.mate2 } : null;
 }
 
+/** Label from the drop in the mover's winning chances (0-100 scale) — shared by review and explore mode. */
+export function labelForLoss(loss, isBest) {
+  if (isBest || loss < 0.5) return 'best';
+  if (loss < 2) return 'excellent';
+  if (loss < 5) return 'good';
+  if (loss < 10) return 'inaccuracy';
+  if (loss < 15) return 'mistake';
+  return 'blunder';
+}
+
 /** Did the move just played leave the moved piece en prise for less than it is worth (a sacrifice)? */
 function isSacrifice(chess, move) {
   const value = VALUES[move.promotion || move.piece];
@@ -133,13 +143,8 @@ export function reviewGame({ Chess, startFen, moves, positions, book = {} }) {
     else if (loss < 2 && winAfter >= 50 && winBefore < 97 && isSacrifice(chess, move)) label = 'brilliant';
     // Delivering mate is simply the best move, even when it is the only one that wins.
     else if ((isBest || loss < 1) && alt && winBefore - winAlt >= 15 && winAlt < 80 && !chess.isCheckmate()) label = 'great';
-    else if (isBest || loss < 0.5) label = 'best';
-    else if (loss < 2) label = 'excellent';
-    else if (loss < 5) label = 'good';
     else if ((opponentErred || hadMate) && loss >= 10 && winAfter >= 30) label = 'miss';
-    else if (loss < 10) label = 'inaccuracy';
-    else if (loss < 15) label = 'mistake';
-    else label = 'blunder';
+    else label = labelForLoss(loss, isBest);
 
     let bestSan = null;
     if (before.best && !isBest) {

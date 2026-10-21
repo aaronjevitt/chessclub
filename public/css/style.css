@@ -483,3 +483,13 @@ html, body, a, button, input, select, label, summary, .move-list, .side-panel { 
 .tv-challenge-tc span { font-size: .7em; opacity: .9; }
 .tv-challenge-info { min-width: 0; }
 .tv-challenge-who { font-weight: 700; font-size: 1.15em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* ---------- game review: explore a line ---------- */
+.explore-box { display: flex; flex-direction: column; gap: .5rem; padding: .7rem .8rem; border-radius: 10px; border: 1px dashed var(--accent); background: var(--accent-soft); }
+.explore-line { font-weight: 700; font-variant-numeric: tabular-nums; word-break: break-word; }
+.explore-hint { margin-top: -.3rem; }
+@media (max-width: 900px) {
+  .dock-nav.explore { grid-template-columns: 1fr 1fr 1.3fr; }
+  .dock-nav.explore .btn { font-size: .9rem; }
+  body.has-review-dock .explore-box .row, body.has-review-dock .explore-hint { display: none; }
+}
