@@ -6,6 +6,7 @@ import { saveLocalGame, getLocalGame, deleteLocalGame, newLocalId } from './loca
 import { Engine } from './stockfish.js';
 import { gameElo, isApproximate } from './bots.js';
 import { Evaluator, createEvalBar } from './eval-bar.js';
+import { evalBarVisibility, evalBarLabel } from './eval-settings.js';
 import { formatClock, tcDescription } from './time-control.js';
 import { timeoutResult } from './clock-rules.js';
 import { reviewGame, whiteWinPercent, labelForLoss, RETRY_LABELS, LABELS } from './review.js';
@@ -338,6 +339,7 @@ export function mountGameView(root, { user, kind, id, navigate }) {
           bot: state.meta.bot,
           event: state.meta.event,
           evalBar: !!state.meta.evalBar,
+          evalBarMoves: state.meta.evalBarMoves,
           timeControl: state.timeControl || null,
           whiteMs: remainingMs('w'),
           blackMs: remainingMs('b'),
@@ -1001,6 +1003,7 @@ export function mountGameView(root, { user, kind, id, navigate }) {
 
   /** Evaluate the position on the board (live or under review) when the game has the eval bar enabled. */
   function updateEvalBar(ply) {
+    evalBar.el.style.opacity = '';
     if (review?.explore) {
       evalBar.el.hidden = false;
       evalBar.setOrientation(board.orientation);
@@ -1018,8 +1021,11 @@ export function mountGameView(root, { user, kind, id, navigate }) {
       evalBar.set({ cp: p.cp, mate: p.mate });
       return;
     }
-    evalBar.el.hidden = !state.meta?.evalBar;
-    if (!state.meta?.evalBar) return;
+    // A move limit fades the bar out during live play (it is always shown in full afterwards).
+    const visibility = evalBarVisibility(state.meta, state.moves.length, state.status === 'active');
+    evalBar.el.hidden = visibility === 0;
+    evalBar.el.style.opacity = String(visibility);
+    if (!visibility) return;
     evalBar.setOrientation(board.orientation);
     evaluator ||= new Evaluator({ timeMs: 900 });
     const moves = state.moves.slice(0, ply);
@@ -1078,7 +1084,7 @@ export function mountGameView(root, { user, kind, id, navigate }) {
       const elo = gameElo(state.meta);
       badges.push(el('span', { class: 'badge', title: isApproximate(elo) ? 'Approximate rating' : 'Stockfish UCI_Elo' }, `🤖 ${isApproximate(elo) ? '~' : ''}${elo}`));
     }
-    if (state.meta?.evalBar) badges.push(el('span', { class: 'badge' }, 'Eval bar'));
+    if (state.meta?.evalBar) badges.push(el('span', { class: 'badge' }, evalBarLabel(state.meta)));
     if (kind === 'local') badges.push(el('span', { class: 'badge private' }, '🔒 Private'));
     else if (state.visibility === 'private') badges.push(el('span', { class: 'badge private' }, '🔒 Private'));
     if (kind === 'server' && state.status === 'active') badges.push(el('span', { class: 'badge live' }, '● Live'));

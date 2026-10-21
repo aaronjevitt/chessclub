@@ -327,8 +327,10 @@ body.tv-mode main { max-width: none; padding: 0; }
   box-shadow: 0 2px 10px rgba(0, 0, 0, .2);
 }
 .eval-bar[hidden] { display: none; }
-.eval-bar.flipped { flex-direction: column-reverse; justify-content: flex-start; }
+/* Normally White's share fills from the bottom; from Black's side it fills from the top. */
+.eval-bar.flipped { justify-content: flex-start; }
 .eval-white { background: #f4f2ee; height: 50%; transition: height .45s ease; }
+.eval-bar { transition: opacity .6s ease; }
 .eval-bar.pending .eval-white { opacity: .85; }
 .eval-label {
   position: absolute; left: 0; right: 0; text-align: center; font-size: 10px; font-weight: 800;
@@ -493,3 +495,7 @@ html, body, a, button, input, select, label, summary, .move-list, .side-panel { 
   .dock-nav.explore .btn { font-size: .9rem; }
   body.has-review-dock .explore-box .row, body.has-review-dock .explore-hint { display: none; }
 }
+.eval-option { display: flex; flex-direction: column; gap: .3rem; }
+.eval-limit { display: flex; align-items: center; gap: .4rem; flex-wrap: wrap; padding-left: 1.6rem; }
+.eval-limit input { width: 4.5rem; padding: .3rem .45rem; }
+.eval-option:not(:has(input[name=evalBar]:checked)) .eval-limit { opacity: .45; }

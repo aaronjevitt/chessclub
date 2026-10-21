@@ -144,6 +144,13 @@ export function createServer({ dbFile = path.join(ROOT, 'data', 'chessclub.db') 
     return tc ? { initial: tc.initial / 1000, increment: tc.increment / 1000 } : null;
   }
 
+  /** Eval bar settings from a create request: {evalBar, evalBarMoves?} (a move limit of 1-200), or {}. */
+  function evalBarMeta(body) {
+    if (body.evalBar !== true) return {};
+    const n = Math.round(Number(body.evalBarMoves));
+    return n >= 1 && n <= 200 ? { evalBar: true, evalBarMoves: n } : { evalBar: true };
+  }
+
   function readTimeControl(body, mode) {
     if (!TIMED_MODES.has(mode)) return null;
     try {
@@ -424,7 +431,7 @@ export function createServer({ dbFile = path.join(ROOT, 'data', 'chessclub.db') 
         club.id, 'online', visibility, 'waiting', me.id,
         color === 'white' ? me.id : null, color === 'black' ? me.id : null,
         color === 'white' ? me.username : null, color === 'black' ? me.username : null,
-        color, invitedId, START_FEN, START_FEN, '[]', '*', null, JSON.stringify({ evalBar: body.evalBar === true }), now, now,
+        color, invitedId, START_FEN, START_FEN, '[]', '*', null, JSON.stringify(evalBarMeta(body)), now, now,
         tc ? JSON.stringify(tc) : null, tc?.initial ?? null, tc?.initial ?? null, null,
       );
       const state = notify(Number(lastInsertRowid));
@@ -456,7 +463,7 @@ export function createServer({ dbFile = path.join(ROOT, 'data', 'chessclub.db') 
       }
       if (body.localId) meta.localId = cleanText(body.localId, 64);
       if (mode === 'otb') meta.event = cleanText(body.event, 80);
-      if (body.evalBar === true) meta.evalBar = true;
+      Object.assign(meta, evalBarMeta(body));
       const over = gameOverInfo(chess);
       // The broadcaster's device has been timing the game so far; continue from its clock readings.
       const tc = readTimeControl(body, mode);

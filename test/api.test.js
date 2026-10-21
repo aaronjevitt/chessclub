@@ -333,3 +333,15 @@ test('computer games store the bot Elo; Stockfish files are served', async () =>
   assert.equal((await fetch(`${base}/vendor/stockfish/stockfish-19.wasm`)).status, 404);
   assert.equal((await fetch(`${base}/vendor/stockfish/..%2fpackage.json`)).status, 404);
 });
+
+test('eval bar move limit is stored and validated', async () => {
+  const a = await registered('evalfade');
+  const club = (await a.post('/api/clubs', { name: 'Fade' })).body.club;
+  const g = (await a.post(`/api/clubs/${club.id}/games`, { mode: 'online', evalBar: true, evalBarMoves: 10 })).body.game;
+  assert.deepEqual(g.meta, { evalBar: true, evalBarMoves: 10 });
+  const bad = (await a.post(`/api/clubs/${club.id}/games`, { mode: 'computer', evalBar: true, evalBarMoves: 999 })).body.game;
+  assert.equal(bad.meta.evalBar, true);
+  assert.equal(bad.meta.evalBarMoves, undefined);
+  const off = (await a.post(`/api/clubs/${club.id}/games`, { mode: 'self', evalBarMoves: 10 })).body.game;
+  assert.equal(off.meta.evalBar, undefined);
+});

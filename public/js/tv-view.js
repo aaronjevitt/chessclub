@@ -5,6 +5,7 @@ import { el, clear, timeAgo } from './dom.js';
 import { renderMiniBoard } from './board.js';
 import { MODE_LABEL, resultText } from './game-view.js';
 import { Evaluator, createEvalBar } from './eval-bar.js';
+import { evalBarVisibility, evalBarLabel } from './eval-settings.js';
 import { formatClock, tcLabel, speedName } from './time-control.js';
 
 // Finished games stay on screen this long so the room can see the result.
@@ -95,7 +96,7 @@ function challengeCard(g) {
     el('div', { class: 'tv-challenge-info' },
       el('div', { class: 'tv-challenge-who' }, g.creatorName,
         el('span', { class: 'muted' }, g.invitedName ? ` challenges ${g.invitedName}` : ' is looking for a game')),
-      el('div', { class: 'muted' }, `${colour}${g.meta?.evalBar ? ' · eval bar' : ''} · ${timeAgo(g.createdAt)}`)));
+      el('div', { class: 'muted' }, `${colour}${g.meta?.evalBar ? ` · ${evalBarLabel(g.meta).toLowerCase()}` : ''} · ${timeAgo(g.createdAt)}`)));
 }
 
 export async function mountTvView(root, clubId) {
@@ -130,12 +131,14 @@ export async function mountTvView(root, clubId) {
   const evalBars = new Map();
 
   function evalBarFor(game) {
-    if (!game.meta?.evalBar) return null;
+    const visibility = evalBarVisibility(game.meta, game.moves.length, game.status === 'active');
+    if (!visibility) return null;
     let bar = evalBars.get(game.id);
     if (!bar) {
       bar = createEvalBar();
       evalBars.set(game.id, bar);
     }
+    bar.el.style.opacity = String(visibility);
     const key = game.moves.length;
     bar.el.dataset.key = key;
     evaluator.evaluate(`game:${game.id}`, game.startFen, game.moves).then((r) => {
@@ -145,7 +148,7 @@ export async function mountTvView(root, clubId) {
   }
 
   const liveGames = () => games.filter((g) => g.status === 'active');
-  const hasEvalBars = () => liveGames().some((g) => g.meta?.evalBar);
+  const hasEvalBars = () => liveGames().some((g) => evalBarVisibility(g.meta, g.moves.length) > 0);
 
   function layout() {
     const n = liveGames().length;

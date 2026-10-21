@@ -6,6 +6,7 @@ import { listLocalGames, saveLocalGame, newLocalId } from './local-games.js';
 import { BOTS, MIN_ELO, MAX_ELO, botName, clampElo, isApproximate } from './bots.js';
 import { mountTvView } from './tv-view.js';
 import { timeControlPicker, tcDescription, tcLabel } from './time-control.js';
+import { evalBarLabel } from './eval-settings.js';
 
 const START_FEN = 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1';
 const main = document.getElementById('main');
@@ -43,6 +44,23 @@ function renderNav() {
 
 function field(label, input, hint) {
   return el('label', { class: 'field' }, el('span', { class: 'field-label' }, label), input, hint ? el('span', { class: 'hint' }, hint) : null);
+}
+
+/** "Show evaluation bar" checkbox plus an optional move limit after which the bar fades away. */
+function evalBarField(note) {
+  return el('div', { class: 'eval-option' },
+    el('label', { class: 'check' }, el('input', { type: 'checkbox', name: 'evalBar' }), ' Show evaluation bar ',
+      el('span', { class: 'muted small' }, note)),
+    el('label', { class: 'eval-limit muted small' }, 'for the first',
+      el('input', { type: 'number', name: 'evalBarMoves', min: 1, max: 200, placeholder: 'all', 'aria-label': 'Number of moves to show the evaluation bar for' }),
+      'moves — it fades out as the limit approaches (leave empty for the whole game)'));
+}
+
+/** Eval bar settings from a submitted form: {evalBar, evalBarMoves?}, or {} when off. */
+function evalBarSettings(d) {
+  if (d.evalBar !== 'on') return {};
+  const n = Math.round(Number(d.evalBarMoves));
+  return n >= 1 && n <= 200 ? { evalBar: true, evalBarMoves: n } : { evalBar: true };
 }
 
 function formData(form) {
@@ -220,7 +238,7 @@ function challengeRow(g, refresh) {
     el('div', {},
       el('strong', {}, mine ? (g.invitedName ? `You challenged ${g.invitedName}` : 'Your open challenge') : `${g.creatorName} challenges ${forMe ? 'you' : 'anyone'}`),
       g.visibility === 'private' ? el('span', { class: 'badge private' }, '🔒 Private') : null,
-      g.meta?.evalBar ? el('span', { class: 'badge' }, 'Eval bar') : null,
+      g.meta?.evalBar ? el('span', { class: 'badge' }, evalBarLabel(g.meta)) : null,
       el('div', { class: 'muted small' }, `${tcDescription(g.timeControl)} · ${colorText} · ${g.clubName} · ${timeAgo(g.createdAt)}`)),
     el('div', { class: 'row' },
       mine ? el('button', { type: 'button', class: 'btn small', onclick: act('cancel') }, 'Cancel') : null,
@@ -278,7 +296,7 @@ async function clubView(clubId) {
       el('option', { value: 'club' }, 'Club — members can watch live'),
       el('option', { value: 'private' }, 'Private — only the two players'))),
     field('Time control', challengeTc.el),
-    el('label', { class: 'check' }, el('input', { type: 'checkbox', name: 'evalBar' }), ' Show evaluation bar (visible to both players)'),
+    evalBarField('(visible to both players)'),
     el('button', { type: 'submit', class: 'btn primary' }, 'Create challenge'));
   challengeForm.addEventListener('submit', (e) => {
     e.preventDefault();
@@ -291,7 +309,7 @@ async function clubView(clubId) {
           color: d.color,
           visibility: d.visibility,
           opponentId: d.opponentId ? Number(d.opponentId) : null,
-          evalBar: d.evalBar === 'on',
+          ...evalBarSettings(d),
           timeControl: challengeTc.read(),
         },
       });
@@ -448,8 +466,7 @@ async function newGameView(params) {
       modeOption('self', '♟ Play yourself', 'Move both sides — practice or analysis'),
       modeOption('otb', '📋 Real game', 'Record / broadcast an over-the-board game')),
     computerFields, otbFields,
-    el('label', { class: 'check' }, el('input', { type: 'checkbox', name: 'evalBar' }),
-      ' Show evaluation bar ', el('span', { class: 'muted small' }, '(engine assessment beside the board — spectators see it too)')),
+    evalBarField('(engine assessment beside the board — spectators see it too)'),
     el('details', {},
       el('summary', {}, 'Custom starting position'),
       field('FEN', el('input', { name: 'fen', placeholder: START_FEN, spellcheck: 'false' }), 'Leave empty for the standard starting position.')),
@@ -488,7 +505,7 @@ async function newGameView(params) {
       const computer = botName(elo, chosenBot?.name);
       let whiteName;
       let blackName;
-      const gameMeta = d.evalBar === 'on' ? { evalBar: true } : {};
+      const gameMeta = evalBarSettings(d);
       if (d.mode === 'computer') {
         whiteName = playerColor === 'white' ? user.username : computer;
         blackName = playerColor === 'black' ? user.username : computer;
