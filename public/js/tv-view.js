@@ -1,11 +1,11 @@
 // Projector view: every live club game, as large as the screen allows, updating in real time.
 import { Chess } from '/vendor/chess.js';
 import { api, getSocket } from './api.js';
-import { el, clear } from './dom.js';
+import { el, clear, timeAgo } from './dom.js';
 import { renderMiniBoard } from './board.js';
 import { MODE_LABEL, resultText } from './game-view.js';
 import { Evaluator, createEvalBar } from './eval-bar.js';
-import { formatClock, tcLabel } from './time-control.js';
+import { formatClock, tcLabel, speedName } from './time-control.js';
 
 // Finished games stay on screen this long so the room can see the result.
 const SHOW_FINISHED_MS = 30 * 1000;
@@ -85,6 +85,19 @@ function finishedTile(game) {
       el('div', { class: 'tv-done-why' }, game.termination || '')));
 }
 
+/** An open challenge, for the strip shown when no games are in progress. */
+function challengeCard(g) {
+  const colour = g.creatorColor === 'random' ? 'random colours' : `plays ${g.creatorColor}`;
+  return el('div', { class: 'tv-challenge' },
+    el('div', { class: 'tv-challenge-tc' },
+      el('strong', {}, g.timeControl ? tcLabel(g.timeControl) : '∞'),
+      el('span', {}, speedName(g.timeControl))),
+    el('div', { class: 'tv-challenge-info' },
+      el('div', { class: 'tv-challenge-who' }, g.creatorName,
+        el('span', { class: 'muted' }, g.invitedName ? ` challenges ${g.invitedName}` : ' is looking for a game')),
+      el('div', { class: 'muted' }, `${colour}${g.meta?.evalBar ? ' · eval bar' : ''} · ${timeAgo(g.createdAt)}`)));
+}
+
 export async function mountTvView(root, clubId) {
   const socket = getSocket();
   const { club, membership } = await api(`/clubs/${clubId}`);
@@ -94,6 +107,7 @@ export async function mountTvView(root, clubId) {
   const clock = el('span', { class: 'tv-clock' });
   const grid = el('div', { class: 'tv-grid' });
   const finishedStrip = el('div', { class: 'tv-finished', hidden: true });
+  const challengeStrip = el('div', { class: 'tv-challenges', hidden: true });
   const fullscreenBtn = el('button', {
     type: 'button',
     class: 'btn ghost small',
@@ -104,10 +118,12 @@ export async function mountTvView(root, clubId) {
       el('div', { class: 'tv-title' }, el('span', { class: 'logo-mark' }, '♞'), club.name, liveCount),
       el('div', { class: 'row' }, clock, fullscreenBtn, el('a', { href: `#/club/${club.id}`, class: 'btn ghost small' }, 'Exit'))),
     grid,
-    finishedStrip));
+    finishedStrip,
+    challengeStrip));
   document.body.classList.add('tv-mode');
 
   let games = [];
+  let challenges = [];
   const finishedAt = new Map();
   const evaluator = new Evaluator({ timeMs: 700 });
   // One bar per game, reused across re-renders so it animates from its previous value.
@@ -164,12 +180,21 @@ export async function mountTvView(root, clubId) {
     const active = liveGames();
     for (const id of evalBars.keys()) if (!active.some((g) => g.id === id)) evalBars.delete(id);
     clockRefs = [];
+    // With nothing being played, open challenges fill the bottom of the screen so people can pick one up.
+    const showChallenges = !active.length && challenges.length > 0;
+    challengeStrip.hidden = !showChallenges;
+    clear(challengeStrip, showChallenges
+      ? [el('div', { class: 'tv-challenges-title' }, `Open challenges (${challenges.length})`),
+        el('div', { class: 'tv-challenges-list' }, challenges.map(challengeCard))]
+      : null);
     if (!active.length) {
       grid.style.gridTemplateColumns = '';
       clear(grid, el('div', { class: 'tv-empty' },
         el('div', { class: 'tv-empty-icon' }, '♞'),
         el('div', {}, 'No games in progress'),
-        el('div', { class: 'muted' }, 'Live club games will appear here automatically.')));
+        el('div', { class: 'muted' }, showChallenges
+          ? `Accept a challenge on your phone: ${club.name} → Open challenges.`
+          : 'Live club games will appear here automatically.')));
       return;
     }
     clear(grid, active.map((g) => tile(g, evalBarFor(g))));
@@ -198,6 +223,7 @@ export async function mountTvView(root, clubId) {
       .filter((g) => g.visibility === 'club')
       // Sort by id so boards keep their place on screen as moves come in.
       .sort((a, b) => a.id - b.id);
+    challenges = data.waiting.filter((g) => g.visibility === 'club').sort((a, b) => a.createdAt - b.createdAt);
     render();
     scheduleExpiry();
   }

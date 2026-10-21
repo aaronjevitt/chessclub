@@ -465,3 +465,21 @@ html, body, a, button, input, select, label, summary, .move-list, .side-panel { 
   body.has-review-dock .status { font-size: .95rem; }
   .side-panel .move-list { max-height: 180px; }
 }
+
+/* ---------- projector: open challenges ---------- */
+.tv-challenges {
+  flex: none; padding: 14px 20px 18px; border-top: 1px solid var(--border); background: var(--surface);
+  max-height: 38vh; overflow: hidden; font-size: clamp(.9rem, 1.6vh, 1.4rem);
+}
+.tv-challenges[hidden] { display: none; }
+.tv-challenges-title { font-weight: 800; text-transform: uppercase; letter-spacing: .06em; font-size: .8em; color: var(--muted); margin-bottom: .6em; }
+.tv-challenges-list { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 22em), 1fr)); gap: .7em; }
+.tv-challenge { display: flex; align-items: center; gap: .9em; padding: .6em .8em; border: 1px solid var(--border); border-radius: 12px; background: var(--surface-2); }
+.tv-challenge-tc {
+  flex: none; display: flex; flex-direction: column; align-items: center; justify-content: center; min-width: 4.6em; padding: .35em .5em;
+  border-radius: 10px; background: var(--accent); color: #fff; line-height: 1.1;
+}
+.tv-challenge-tc strong { font-size: 1.45em; }
+.tv-challenge-tc span { font-size: .7em; opacity: .9; }
+.tv-challenge-info { min-width: 0; }
+.tv-challenge-who { font-weight: 700; font-size: 1.15em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
