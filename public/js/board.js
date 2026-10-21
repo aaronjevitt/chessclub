@@ -15,8 +15,9 @@ function squaresFor(orientation) {
   return out;
 }
 
+/** a1 is dark and h1 is light ("light on the right"). */
 function isLight(square) {
-  return (FILES.indexOf(square[0]) + Number(square[1])) % 2 === 1;
+  return (FILES.indexOf(square[0]) + Number(square[1])) % 2 === 0;
 }
 
 /** A piece drawn with the SVG artwork in /pieces (CSS class p-wK, p-bQ, ...). */
