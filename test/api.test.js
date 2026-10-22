@@ -556,3 +556,48 @@ test('online Swiss tournament: games created per round, results flow back, winne
   assert.equal(t.tournament.status, 'finished');
   assert.equal(t.standings[0].points, 2);
 });
+
+test('PGN import: several games, side detection, private by default, reviewable', async () => {
+  const a = await registered('pgnuser');
+  const b = await registered('pgnother');
+  const club = (await a.post('/api/clubs', { name: 'PGN Club' })).body.club;
+  await b.post(`/api/clubs/${club.id}/join`);
+  const pgn = `[Event "Club night"]
+[Date "2025.03.??"]
+[White "Someone"]
+[Black "PGNUser"]
+[Result "0-1"]
+
+1. f3 e5 2. g4 {oops} Qh4# 0-1
+
+[Event "Casual"]
+[White "pgnuser"]
+[Black "Friend"]
+[Result "1/2-1/2"]
+
+1. e4 (1. d4 d5) e5 2. Nf3 $1 Nc6 1/2-1/2
+`;
+  assert.equal((await a.post(`/api/clubs/${club.id}/import`, { pgn: '1. e4 e5 2. Ke3 Ke6 3. Kxe5' })).status, 400);
+  assert.equal((await a.post(`/api/clubs/${club.id}/import`, { pgn: '' })).status, 400);
+  const r = await a.post(`/api/clubs/${club.id}/import`, { pgn });
+  assert.equal(r.status, 201, JSON.stringify(r.body));
+  const [g1, g2] = r.body.games;
+  assert.deepEqual([g1.mode, g1.status, g1.result, g1.termination, g1.visibility], ['import', 'finished', '0-1', 'checkmate', 'private']);
+  assert.deepEqual(g1.moves, ['f3', 'e5', 'g4', 'Qh4#']);
+  assert.deepEqual([g1.meta.playerColor, g1.meta.event, g1.meta.date], ['black', 'Club night', '2025.03']);
+  assert.deepEqual([g2.meta.playerColor, g2.result, g2.moves.length], ['white', '1/2-1/2', 4]);
+  assert.equal((await b.get(`/api/games/${g1.id}`)).status, 404, 'private to the importer');
+
+  // Imported games can be reviewed and feed puzzles, but don't touch club records or ratings.
+  const pos = (best, cp, mate = null) => ({ best, cp, mate, alt: null, cp2: null, mate2: null });
+  const positions = [pos('e2e4', 30), pos('e7e5', -40), pos('e2e4', -60), pos('d8h4', null, -1), pos(null, -100000, 0)];
+  assert.equal((await a.post(`/api/games/${g1.id}/analysis`, { analysis: { engine: 't', timeMs: 1, positions } })).status, 200);
+  const profile = (await a.get(`/api/users/${a.user.id}`)).body;
+  assert.deepEqual(profile.record, { members: { w: 0, d: 0, l: 0 }, computer: { w: 0, d: 0, l: 0 } });
+  assert.equal(profile.reviewedGames, 1);
+  assert.equal(profile.clubs[0].rating, 1200);
+
+  const shared = (await a.post(`/api/clubs/${club.id}/import`, { pgn: '1. e4 e5', visibility: 'club', playerColor: 'none' })).body.games[0];
+  assert.equal(shared.meta.playerColor, undefined);
+  assert.equal((await b.get(`/api/games/${shared.id}`)).status, 200);
+});

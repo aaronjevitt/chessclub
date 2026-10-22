@@ -230,7 +230,7 @@ export async function mountTvView(root, clubId) {
       // ended when the page loaded, fall back to the server's timestamp.
       finishedAt.set(g.id, games.some((shown) => shown.id === g.id) ? now : g.updatedAt);
     }
-    games = [...data.active, ...data.finished.filter((g) => now - finishedAt.get(g.id) < SHOW_FINISHED_MS)]
+    games = [...data.active, ...data.finished.filter((g) => g.mode !== 'import' && now - finishedAt.get(g.id) < SHOW_FINISHED_MS)]
       // Private games are never shown on a shared screen.
       .filter((g) => g.visibility === 'club')
       // Sort by id so boards keep their place on screen as moves come in.

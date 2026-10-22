@@ -15,7 +15,7 @@ import { loadOpeningBook, labelIcon, explainMove, renderSummary, renderGraph } f
 
 const ANALYSIS_MS = 350;
 
-export const MODE_LABEL = { online: 'Online', computer: 'vs Computer', self: 'Self-play', otb: 'Over the board' };
+export const MODE_LABEL = { online: 'Online', computer: 'vs Computer', self: 'Self-play', otb: 'Over the board', import: 'Imported' };
 const BROADCAST_MODES = new Set(['computer', 'self', 'otb']);
 const VALUES = { p: 1, n: 3, b: 3, r: 5, q: 9 };
 
@@ -481,7 +481,8 @@ export function mountGameView(root, { user, kind, id, navigate }) {
     let name = side.name;
     if (!name && state.status === 'waiting') name = 'Waiting for opponent…';
     const isYou = (state.mode === 'online' && side.id === user.id) ||
-      (state.mode === 'computer' && isOwner() && color !== engineColor());
+      (state.mode === 'computer' && isOwner() && color !== engineColor()) ||
+      (state.mode === 'import' && isOwner() && state.meta.playerColor === (color === 'w' ? 'white' : 'black'));
     // Material: opponent pieces missing compared with the game's starting position.
     const counts = pieceCounts(chess);
     const startCounts = pieceCounts(new Chess(state.startFen));
@@ -866,6 +867,7 @@ export function mountGameView(root, { user, kind, id, navigate }) {
     const mine = myOnlineColor();
     if (mine) return [mine];
     if (state.mode === 'computer') return [state.meta.playerColor === 'black' ? 'b' : 'w'];
+    if (state.mode === 'import' && isOwner() && state.meta.playerColor) return [state.meta.playerColor === 'black' ? 'b' : 'w'];
     return ['w', 'b'];
   }
 
@@ -1229,7 +1231,7 @@ export function mountGameView(root, { user, kind, id, navigate }) {
     }
     if (!orientationSet) {
       const mine = myOnlineColor();
-      const orient = mine ? mine : state.mode === 'computer' && state.meta.playerColor === 'black' ? 'b' : 'w';
+      const orient = mine ? mine : ['computer', 'import'].includes(state.mode) && state.meta.playerColor === 'black' ? 'b' : 'w';
       board.orientation = orient === 'w' ? 'white' : 'black';
       orientationSet = true;
     }
@@ -1265,6 +1267,7 @@ export function mountGameView(root, { user, kind, id, navigate }) {
       const elo = gameElo(state.meta);
       badges.push(el('span', { class: 'badge', title: isApproximate(elo) ? 'Approximate rating' : 'Stockfish UCI_Elo' }, `🤖 ${isApproximate(elo) ? '~' : ''}${elo}`));
     }
+    if (state.mode === 'import' && (state.meta.event || state.meta.date)) badges.push(el('span', { class: 'badge' }, `📅 ${[state.meta.event, state.meta.date].filter(Boolean).join(' · ')}`));
     if (state.meta?.evalBar) badges.push(el('span', { class: 'badge' }, evalBarLabel(state.meta)));
     if (state.mode === 'computer' && hintsUsed()) badges.push(el('span', { class: 'badge', title: 'Hints used in this game' }, `💡 ${hintsUsed()}`));
     if (kind === 'local') badges.push(el('span', { class: 'badge private' }, '🔒 Private'));

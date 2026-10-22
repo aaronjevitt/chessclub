@@ -9,6 +9,7 @@ import { gameCard } from './game-card.js';
 import { soundEnabled, setSoundEnabled, sounds } from './sounds.js';
 import { profileView } from './profile-view.js';
 import { puzzleView } from './puzzle-view.js';
+import { importCard } from './import-view.js';
 import { clubTournamentsCard, tournamentView } from './tournament-view.js';
 import { renderMiniBoard } from './board.js';
 import { mountGameView, MODE_LABEL, resultText } from './game-view.js';
@@ -560,7 +561,7 @@ async function newGameView(params) {
     });
   });
 
-  clear(wrap, form);
+  clear(wrap, form, mine.length ? importCard(mine, { preClub, navigate }) : null);
 }
 
 // ---------- router ----------

@@ -14,6 +14,7 @@ import { registerProfileRoutes } from './profiles.js';
 import { registerTournamentRoutes } from './tournaments.js';
 import { createPush } from './push.js';
 import { registerPuzzleRoutes } from './puzzles.js';
+import { splitPgn, parsePgnGame, pgnInfo, MAX_IMPORT_GAMES } from './pgn.js';
 import { summarizeReview } from './review-summary.js';
 import { START_FEN, replay, gameOverInfo, tryMove, isValidFen } from './chesslogic.js';
 import {
@@ -352,6 +353,53 @@ export function createServer({ dbFile = path.join(ROOT, 'data', 'chessclub.db'),
   registerProfileRoutes(ctx);
   registerTournamentRoutes(ctx);
   registerPuzzleRoutes(ctx);
+
+  // Import games from PGN (e.g. from another site or a scoresheet) as finished games to review.
+  app.post('/api/clubs/:id/import', (req, res) => {
+    const { club } = requireMember(req);
+    const me = req.user;
+    const body = req.body || {};
+    const text = typeof body.pgn === 'string' ? body.pgn : '';
+    if (!text.trim()) throw new HttpError(400, 'Paste a PGN first');
+    if (text.length > 2_000_000) throw new HttpError(413, 'That PGN is too large');
+    const chunks = splitPgn(text);
+    if (chunks.length > MAX_IMPORT_GAMES) throw new HttpError(400, `At most ${MAX_IMPORT_GAMES} games at a time`);
+    const parsed = chunks.map((chunk, i) => {
+      try {
+        return parsePgnGame(chunk);
+      } catch (err) {
+        throw new HttpError(400, chunks.length > 1 ? `Game ${i + 1}: ${err.message}` : err.message);
+      }
+    });
+    const visibility = body.visibility === 'club' ? 'club' : 'private';
+    const now = Date.now();
+    const ids = parsed.map((g) => {
+      const info = pgnInfo(g.headers);
+      // Which side you played: chosen, or matched against your username.
+      let playerColor = ['white', 'black'].includes(body.playerColor) ? body.playerColor : null;
+      if (body.playerColor === 'auto' || body.playerColor === undefined) {
+        const name = me.username.toLowerCase();
+        if (info.white?.toLowerCase() === name) playerColor = 'white';
+        else if (info.black?.toLowerCase() === name) playerColor = 'black';
+      }
+      const meta = { playerColor, event: info.event, site: info.site, date: info.date, whiteElo: info.whiteElo, blackElo: info.blackElo, pgnTimeControl: info.timeControl };
+      for (const key of Object.keys(meta)) {
+        if (meta[key] == null) delete meta[key];
+        else if (typeof meta[key] === 'string') meta[key] = cleanText(meta[key], 80);
+      }
+      const { lastInsertRowid } = q.insertGame.run(
+        club.id, 'import', visibility, 'finished', me.id, null, null,
+        cleanText(info.white, 40) || (playerColor === 'white' ? me.username : 'White'),
+        cleanText(info.black, 40) || (playerColor === 'black' ? me.username : 'Black'),
+        null, null, g.startFen, g.fen, JSON.stringify(g.moves), g.result,
+        cleanText(g.termination, 60) || 'imported', JSON.stringify(meta), now, now, null, null, null, null,
+      );
+      return Number(lastInsertRowid);
+    });
+    if (visibility === 'club') io.to(`club:${club.id}`).emit('club:changed', { clubId: club.id });
+    io.to(`user:${me.id}`).emit('mygames:changed');
+    res.status(201).json({ games: ids.map((id) => serializeGame(q.game.get(id))) });
+  });
 
   app.get('/api/clubs/:id/leaderboard', (req, res) => {
     const { club } = requireMember(req);

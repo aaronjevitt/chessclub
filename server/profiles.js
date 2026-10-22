@@ -12,7 +12,7 @@ export function registerProfileRoutes({ app, db, q, HttpError, ratings, serializ
     WHERE theirs.user_id = ? ORDER BY c.name COLLATE NOCASE`);
   const games = db.prepare(`
     SELECT g.*, c.name AS club_name FROM games g JOIN clubs c ON c.id = g.club_id
-    WHERE g.status = 'finished' AND (g.white_id = ?1 OR g.black_id = ?1 OR (g.mode = 'computer' AND g.created_by = ?1))
+    WHERE g.status = 'finished' AND (g.white_id = ?1 OR g.black_id = ?1 OR (g.mode IN ('computer', 'import') AND g.created_by = ?1))
       AND g.club_id IN (SELECT club_id FROM memberships WHERE user_id = ?2)
     ORDER BY g.updated_at DESC LIMIT 300`);
   const saveAnalysis = db.prepare('UPDATE games SET analysis = ? WHERE id = ?');
@@ -41,10 +41,13 @@ export function registerProfileRoutes({ app, db, q, HttpError, ratings, serializ
     for (const g of games.all(target.id, req.user.id)) {
       const colour = colourOf(g, target.id);
       if (!colour || !canView(req.user, g)) continue;
-      const bucket = g.mode === 'online' ? record.members : record.computer;
-      if (g.result === '1/2-1/2') bucket.d++;
-      else if ((g.result === '1-0') === (colour === 'w')) bucket.w++;
-      else if (g.result === '1-0' || g.result === '0-1') bucket.l++;
+      // Imported games (played elsewhere) count towards accuracy but not the club records.
+      const bucket = g.mode === 'online' ? record.members : g.mode === 'computer' ? record.computer : null;
+      if (bucket) {
+        if (g.result === '1/2-1/2') bucket.d++;
+        else if ((g.result === '1-0') === (colour === 'w')) bucket.w++;
+        else if (g.result === '1-0' || g.result === '0-1') bucket.l++;
+      }
       const summary = reviewSummary(g);
       const accuracy = summary?.accuracy?.[colour] ?? null;
       if (accuracy !== null) accuracies.push(accuracy);
