@@ -431,3 +431,30 @@ test('rated games update club ratings once; casual games do not; leaderboard', a
     [[b.user.username, 2, 1, 1, 0], [a.user.username, 2, 0, 1, 1]]);
   assert.ok(board[0].provisional);
 });
+
+test('profiles: shared-club privacy, ratings history, records and review accuracy', async () => {
+  const a = await registered('profa');
+  const b = await registered('profb');
+  const stranger = await registered('profx');
+  const club = (await a.post('/api/clubs', { name: 'Profile Club' })).body.club;
+  await b.post(`/api/clubs/${club.id}/join`);
+  const g = (await a.post(`/api/clubs/${club.id}/games`, { mode: 'online', color: 'white', opponentId: b.user.id })).body.game;
+  await b.post(`/api/games/${g.id}/accept`);
+  for (const [i, san] of ['e4', 'e5', 'Bc4', 'Nc6', 'Qh5', 'Nf6', 'Qxf7#'].entries()) await (i % 2 ? b : a).post(`/api/games/${g.id}/move`, { san });
+  const pos = (best, cp, mate = null) => ({ best, cp, mate, alt: null, cp2: null, mate2: null });
+  const positions = [pos('e2e4', 30), pos('e7e5', 30), pos('g1f3', 30), pos('b8c6', 0), pos('f1c4', 20), pos('g7g6', -20), pos('h5f7', null, 1), pos(null, 100000, 0)];
+  const saved = (await b.post(`/api/games/${g.id}/analysis`, { analysis: { engine: 'test', timeMs: 1, positions } })).body.analysis;
+  assert.ok(saved.summary.accuracy.w > saved.summary.accuracy.b);
+
+  assert.equal((await stranger.get(`/api/users/${a.user.id}`)).status, 404);
+  const p = (await b.get(`/api/users/${a.user.id}`)).body;
+  assert.equal(p.user.username, a.user.username);
+  assert.equal(p.user.isMe, false);
+  assert.deepEqual(p.record.members, { w: 1, d: 0, l: 0 });
+  assert.equal(p.clubs[0].rating, 1220);
+  assert.equal(p.clubs[0].history.length, 1);
+  assert.equal(p.reviewedGames, 1);
+  assert.equal(p.accuracy, saved.summary.accuracy.w);
+  assert.equal(p.recent[0].colour, 'w');
+  assert.equal((await a.get(`/api/users/${a.user.id}`)).body.user.isMe, true);
+});

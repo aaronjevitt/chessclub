@@ -10,6 +10,8 @@ import { registerPublicAccountRoutes, registerAccountRoutes } from './account.js
 import { createMaintenance } from './maintenance.js';
 import { registerClubAdminRoutes } from './clubadmin.js';
 import { createRatings } from './ratings.js';
+import { registerProfileRoutes } from './profiles.js';
+import { summarizeReview } from './review-summary.js';
 import { START_FEN, replay, gameOverInfo, tryMove, isValidFen } from './chesslogic.js';
 import {
   TIMED_MODES, parseTimeControl, clampMs, getTimeControl, remainingTime, clockFields, timeoutResult,
@@ -324,7 +326,8 @@ export function createServer({ dbFile = path.join(ROOT, 'data', 'chessclub.db'),
   registerPublicAccountRoutes(ctx);
 
   app.use('/api', auth.requireUser);
-  Object.assign(ctx, { notify, makeInviteCode, ratings });
+  Object.assign(ctx, { notify, makeInviteCode, ratings, serializeGame, canView });
+  registerProfileRoutes(ctx);
 
   app.get('/api/clubs/:id/leaderboard', (req, res) => {
     const { club } = requireMember(req);
@@ -620,6 +623,8 @@ export function createServer({ dbFile = path.join(ROOT, 'data', 'chessclub.db'),
     // The first analysis stored wins; players in the game may replace it.
     if (g.analysis && !isParticipant(req.user, g)) return res.json({ analysis: JSON.parse(g.analysis) });
     const analysis = validateAnalysis(req.body?.analysis, JSON.parse(g.moves).length);
+    // Accuracy is worked out here from the evaluations, not taken from the browser.
+    analysis.summary = summarizeReview(g, analysis);
     updateGame(g.id, { analysis: JSON.stringify(analysis) });
     res.json({ analysis });
   });

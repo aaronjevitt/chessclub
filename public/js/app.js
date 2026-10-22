@@ -2,9 +2,11 @@ import './no-double-tap-zoom.js';
 import { api, getSocket, resetSocket } from './api.js';
 import { el, clear, toast, timeAgo } from './dom.js';
 import { field, formData, submitting } from './ui.js';
-import { resetView, changePasswordForm } from './account-view.js';
+import { resetView } from './account-view.js';
 import { clubSettingsCard, memberAdminActions } from './club-admin-view.js';
 import { leaderboardTable } from './leaderboard-view.js';
+import { gameCard } from './game-card.js';
+import { profileView } from './profile-view.js';
 import { renderMiniBoard } from './board.js';
 import { mountGameView, MODE_LABEL, resultText } from './game-view.js';
 import { listLocalGames, saveLocalGame, newLocalId } from './local-games.js';
@@ -33,7 +35,7 @@ function renderNav() {
   clear(nav,
     el('a', { href: '#/' }, 'Home'),
     el('a', { href: '#/new' }, 'New game'),
-    el('a', { href: '#/account', class: 'nav-user' }, `♟ ${user.username}`),
+    el('a', { href: `#/player/${user.id}`, class: 'nav-user' }, `♟ ${user.username}`),
     el('button', {
       type: 'button',
       class: 'btn ghost small',
@@ -92,26 +94,6 @@ function authView(mode) {
 
 // ---------- shared bits ----------
 
-function gameCard(g, { local = false } = {}) {
-  const href = local ? `#/local/${g.id}` : `#/game/${g.id}`;
-  const fen = g.fen || g.startFen;
-  let status;
-  if (g.status === 'waiting') status = 'Open challenge';
-  else status = resultText(g) || `${g.moves.length ? `${g.moves.length} move${g.moves.length === 1 ? '' : 's'}` : 'Not started'} · ${fen.split(' ')[1] === 'w' ? 'White' : 'Black'} to move`;
-  return el('a', { href, class: 'game-card' },
-    renderMiniBoard(fen),
-    el('div', { class: 'game-card-info' },
-      el('div', { class: 'players' },
-        el('span', { class: 'pw' }, g.white.name || '?'), el('span', { class: 'vs' }, ' vs '), el('span', { class: 'pb' }, g.black.name || '?')),
-      el('div', { class: 'badges' },
-        el('span', { class: `badge mode-${g.mode}` }, MODE_LABEL[g.mode]),
-        g.timeControl ? el('span', { class: 'badge' }, `⏱ ${tcLabel(g.timeControl)}`) : null,
-        g.visibility === 'private' || local ? el('span', { class: 'badge private' }, '🔒 Private') : null,
-        !local && g.status === 'active' ? el('span', { class: 'badge live' }, '● Live') : null),
-      el('div', { class: 'muted small' }, status),
-      g.clubName && !local ? el('div', { class: 'muted small' }, g.clubName) : null,
-      el('div', { class: 'muted small' }, timeAgo(g.updatedAt))));
-}
 
 // ---------- home ----------
 
@@ -356,7 +338,7 @@ async function clubView(clubId) {
         const panel = el('div', { class: 'member-panel' });
         const isOwner = membership.role === 'owner';
         return el('div', { class: 'member-entry' }, el('div', { class: 'list-item' },
-        el('div', {}, el('strong', {}, m.username), m.role === 'owner' ? el('span', { class: 'badge' }, 'Owner') : null,
+        el('div', {}, el('a', { href: `#/player/${m.id}`, class: 'member-name' }, m.username), m.role === 'owner' ? el('span', { class: 'badge' }, 'Owner') : null,
           m.id === user.id ? el('span', { class: 'muted small' }, ' (you)') : null),
         el('div', { class: 'row member-actions' },
         isOwner && m.id !== user.id ? memberAdminActions(club, m, { onRemoved: loadMembers, panel }) : null,
@@ -561,13 +543,6 @@ async function newGameView(params) {
   clear(wrap, form);
 }
 
-// ---------- account ----------
-
-function accountView() {
-  clear(main, el('div', { class: 'narrow stack' },
-    el('section', { class: 'card' }, el('h1', {}, user.username), el('h2', {}, 'Change password'), changePasswordForm())));
-}
-
 // ---------- router ----------
 
 async function route() {
@@ -612,7 +587,8 @@ async function route() {
     else if (parts[0] === 'game' && parts[1]) viewCleanup = mountGameView(main, { user, kind: 'server', id: Number(parts[1]), navigate });
     else if (parts[0] === 'local' && parts[1]) viewCleanup = mountGameView(main, { user, kind: 'local', id: parts[1], navigate });
     else if (parts[0] === 'new') await newGameView(params);
-    else if (parts[0] === 'account') accountView();
+    else if (parts[0] === 'account') navigate(`#/player/${user.id}`);
+    else if (parts[0] === 'player' && parts[1]) await profileView(main, Number(parts[1]));
     else await homeView();
     // If the user navigated away while this view was loading, tear it down right away.
     if (token !== routeToken) viewCleanup?.();
