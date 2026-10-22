@@ -57,7 +57,7 @@ export function changePasswordForm() {
 /** Turn "your move" notifications on or off for this device. */
 export function notificationsCard() {
   const body = el('div', {});
-  const card = el('section', { class: 'card narrow-card' }, el('h2', {}, 'Notifications'), body);
+  const card = el('section', { class: 'card' }, el('h2', {}, 'Notifications'), body);
   const render = async () => {
     if (needsHomeScreen()) {
       clear(body, el('p', { class: 'muted' },

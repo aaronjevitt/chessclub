@@ -10,6 +10,7 @@ import { evalBarVisibility, evalBarLabel } from './eval-settings.js';
 import { formatClock, tcDescription } from './time-control.js';
 import { timeoutResult } from './clock-rules.js';
 import { sounds, soundForMove } from './sounds.js';
+import { icon } from './icons.js';
 import { reviewGame, whiteWinPercent, labelForLoss, RETRY_LABELS, LABELS } from './review.js';
 import { loadOpeningBook, labelIcon, explainMove, renderSummary, renderGraph } from './review-view.js';
 
@@ -524,7 +525,7 @@ export function mountGameView(root, { user, kind, id, navigate }) {
     if (state.status === 'paused') return 'Broadcast paused — it will continue here if the broadcaster resumes it';
     if (review?.retry) return 'Retry mistakes';
     if (review?.explore) return 'Exploring a different line';
-    if (review) return `Game review — ${resultText(state) || ''}`;
+    if (review) return resultText(state) || 'Game review';
     const res = resultText(state);
     if (res) return res;
     if (viewPly !== null) return `Reviewing move ${viewPly} of ${state.moves.length}`;
@@ -613,14 +614,15 @@ export function mountGameView(root, { user, kind, id, navigate }) {
   }
 
   function button(label, onclick, opts = {}) {
-    return el('button', { type: 'button', class: opts.class || 'btn', onclick, disabled: opts.disabled || pending, title: opts.title }, label);
+    return el('button', { type: 'button', class: opts.class || 'btn', onclick, disabled: opts.disabled || pending, title: opts.title, 'aria-label': opts.title }, label);
   }
 
   function renderControls() {
-    const items = [button('⇅ Flip', () => {
+    const items = [];
+    const tools = [button([icon('flip', { size: 16 }), ' Flip board'], () => {
       board.flip();
       render();
-    }, { class: 'btn ghost' })];
+    }, { class: 'btn small ghost' })];
     const active = state.status === 'active';
     if (state.mode === 'online' && kind === 'server') {
       const mine = myOnlineColor();
@@ -633,24 +635,24 @@ export function mountGameView(root, { user, kind, id, navigate }) {
       }
       if (active && mine) {
         if (state.moves.length < 2) items.push(button('Abort', () => serverAction('cancel'), { class: 'btn' }));
-        if (!state.drawOfferBy) items.push(button('½ Offer draw', () => serverAction('draw', { action: 'offer' })));
+        if (!state.drawOfferBy) items.push(button('Offer draw', () => serverAction('draw', { action: 'offer' })));
         else if (state.drawOfferBy === user.id) items.push(button('Draw offered…', null, { disabled: true }));
-        items.push(button('🏳 Resign', () => {
+        items.push(button('Resign', () => {
           if (confirm('Resign this game?')) serverAction('resign');
         }, { class: 'btn danger' }));
       }
     }
     if (BROADCAST_MODES.has(state.mode) && isOwner()) {
       if (active || (kind === 'local' && state.status === 'finished')) {
-        items.push(button('↶ Takeback', takeback, { disabled: !state.moves.length }));
+        items.push(button('Takeback', takeback, { disabled: !state.moves.length }));
       }
       if (active && state.mode === 'computer') {
         if (canHint() || hint?.loading) {
           const h = activeHint();
-          const label = hint?.loading ? '💡 Thinking…' : h?.level === 1 ? '💡 Show move' : h?.level === 2 ? '💡 Hint shown' : '💡 Hint';
+          const label = hint?.loading ? 'Thinking…' : h?.level === 1 ? 'Show the move' : h?.level === 2 ? 'Hint shown' : 'Hint';
           items.unshift(button(label, requestHint, { class: 'btn hint-btn', disabled: !!hint?.loading || h?.level === 2 }));
         }
-        items.push(button('🏳 Resign', resign, { class: 'btn danger' }));
+        items.push(button('Resign', resign, { class: 'btn danger' }));
       }
       if (active && state.mode !== 'computer') {
         items.push(el('div', { class: 'result-buttons' },
@@ -662,25 +664,27 @@ export function mountGameView(root, { user, kind, id, navigate }) {
     }
     if (canReview()) {
       if (review) items.push(button('Close review', () => { closeReview(); viewPly = null; render(); }, { class: 'btn' }));
-      else items.push(button(analysing ? 'Analysing…' : state.hasAnalysis || state.analysis ? '⭐ Show review' : '⭐ Game review', openReview, { class: 'btn primary', disabled: !!analysing }));
+      else items.push(button(analysing ? 'Analysing…' : state.hasAnalysis || state.analysis ? 'Show review' : 'Game review', openReview, { class: 'btn primary', disabled: !!analysing }));
     }
-    items.push(button('Copy PGN', async () => {
+    tools.push(button('Copy PGN', async () => {
       try {
         await navigator.clipboard.writeText(toPgn(state));
         toast('PGN copied to clipboard');
       } catch {
         downloadPgn();
       }
-    }, { class: 'btn ghost' }));
-    items.push(button('Download PGN', downloadPgn, { class: 'btn ghost' }));
+    }, { class: 'btn small ghost' }));
+    tools.push(button('Download PGN', downloadPgn, { class: 'btn small ghost' }));
     if (kind === 'local') {
-      items.push(button('Delete game', () => {
+      tools.push(button('Delete game', () => {
         if (!confirm('Delete this private game?')) return;
         deleteLocalGame(user.id, state.id);
         navigate('#/');
-      }, { class: 'btn ghost danger-text' }));
+      }, { class: 'btn small ghost danger-text' }));
     }
-    clear(controls, items);
+    clear(controls,
+      items.length ? el('div', { class: 'row game-actions' }, items) : null,
+      el('div', { class: 'row game-tools' }, tools));
   }
 
   function downloadPgn() {
@@ -705,8 +709,8 @@ export function mountGameView(root, { user, kind, id, navigate }) {
     const select = el('select', { 'aria-label': 'Club to broadcast to' },
       myClubs.map((c) => el('option', { value: c.id, selected: String(c.id) === String(state.broadcast?.clubId) }, c.name)));
     clear(broadcast,
-      el('p', { class: 'muted small' }, '🔒 Private game — only on this device.'),
-      el('div', { class: 'row' }, select, button('📡 Broadcast', () => startBroadcast(select.value), { class: 'btn primary' })));
+      el('p', { class: 'muted small' }, 'Private game — only on this device.'),
+      el('div', { class: 'row' }, select, button('Broadcast', () => startBroadcast(select.value), { class: 'btn primary' })));
   }
 
   // ---------- hints (computer games) ----------
@@ -1098,7 +1102,7 @@ export function mountGameView(root, { user, kind, id, navigate }) {
 
   function exploreButtons(cls = 'btn small') {
     return [
-      button('↶ Undo', exploreUndo, { class: cls, title: 'Take back the last explored move' }),
+      button('Undo', exploreUndo, { class: cls, title: 'Take back the last explored move' }),
       button('Best move', exploreBest, { class: cls, title: "Play Stockfish's best move" }),
       button('Back to game', leaveExplore, { class: `${cls} primary` }),
     ];
@@ -1130,7 +1134,7 @@ export function mountGameView(root, { user, kind, id, navigate }) {
         r.feedback ? el('div', { class: `retry-feedback ${r.feedback.kind}` }, r.feedback.text) : null,
         el('div', { class: 'row' },
           !r.solved ? button('Show solution', showSolution, { class: 'btn' }) : null,
-          button(r.index + 1 < r.list.length ? (r.solved ? 'Next ▶' : 'Skip ▶') : 'Finish', nextRetry, { class: r.solved ? 'btn primary' : 'btn' }),
+          button(r.index + 1 < r.list.length ? (r.solved ? 'Next' : 'Skip') : 'Finish', nextRetry, { class: r.solved ? 'btn primary' : 'btn' }),
           button('Exit', exitRetry, { class: 'btn ghost' }))));
     }
     const current = viewPly ?? state.moves.length;
@@ -1151,10 +1155,10 @@ export function mountGameView(root, { user, kind, id, navigate }) {
             m ? [labelIcon(m.label), ' ', explainMove(m, review.positions)] : 'Starting position. Step through the moves, or jump to the key moments.'),
           el('div', { class: 'muted small explore-hint' }, 'Tip: make a move on the board to explore what would have happened.'),
           el('div', { class: 'row review-actions' },
-            button('◀ Key moment', () => jumpKeyMoment(-1), { class: 'btn small' }),
-            button('Key moment ▶', () => jumpKeyMoment(1), { class: 'btn small' }),
+            button([icon('prev', { size: 16 }), 'Key moment'], () => jumpKeyMoment(-1), { class: 'btn small' }),
+            button(['Key moment', icon('next', { size: 16 })], () => jumpKeyMoment(1), { class: 'btn small' }),
             button('Best move', exploreBest, { class: 'btn small', title: "Try Stockfish's best move here" }),
-            button('🎯 Retry mistakes', startRetry, { class: 'btn small primary' }))]);
+            button('Retry mistakes', startRetry, { class: 'btn small primary' }))]);
   }
 
   function renderReviewDock() {
@@ -1172,10 +1176,10 @@ export function mountGameView(root, { user, kind, id, navigate }) {
     clear(reviewDock,
       el('div', { class: 'dock-explain' }, m ? [labelIcon(m.label, { small: true }), explainMove(m, review.positions)] : 'Starting position'),
       el('div', { class: 'dock-nav' },
-        button('◀◀', () => jumpKeyMoment(-1), { class: 'btn ghost', title: 'Previous key moment' }),
-        button('◀', () => setViewPly(current - 1), { class: 'btn', title: 'Previous move' }),
-        button('▶', () => setViewPly(current + 1), { class: 'btn primary', title: 'Next move' }),
-        button('▶▶', () => jumpKeyMoment(1), { class: 'btn ghost', title: 'Next key moment' })));
+        button(icon('prevKey'), () => jumpKeyMoment(-1), { class: 'btn ghost', title: 'Previous key moment' }),
+        button(icon('prev'), () => setViewPly(current - 1), { class: 'btn', title: 'Previous move' }),
+        button(icon('next'), () => setViewPly(current + 1), { class: 'btn primary', title: 'Next move' }),
+        button(icon('nextKey'), () => jumpKeyMoment(1), { class: 'btn ghost', title: 'Next key moment' })));
   }
 
   /** Evaluate the position on the board (live or under review) when the game has the eval bar enabled. */
@@ -1257,25 +1261,27 @@ export function mountGameView(root, { user, kind, id, navigate }) {
     playerBar(bottomBar, bottomColor, chess);
     playerBar(topBar, bottomColor === 'w' ? 'b' : 'w', chess);
 
-    const badges = [el('span', { class: `badge mode-${state.mode}` }, MODE_LABEL[state.mode])];
-    if (state.timeControl) badges.push(el('span', { class: 'badge' }, `⏱ ${tcDescription(state.timeControl)}`));
-    if (state.mode === 'online') badges.push(el('span', { class: 'badge' }, state.meta?.rated === false ? 'Casual' : 'Rated'));
-    if (state.meta?.tournament) {
-      badges.push(el('a', { href: `#/tournament/${state.meta.tournament}`, class: 'badge tournament-badge' }, `🏆 ${state.meta.tournamentName || 'Tournament'} · R${state.meta.round}`));
-    }
+    // One line of facts about the game; badges only for its state (live, private).
+    const facts = [];
+    if (state.mode === 'online') facts.push(state.meta?.rated === false ? 'Casual' : 'Rated');
+    else if (state.mode !== 'computer') facts.push(MODE_LABEL[state.mode]);
+    if (state.timeControl) facts.push(tcDescription(state.timeControl));
     if (state.mode === 'computer') {
       const elo = gameElo(state.meta);
-      badges.push(el('span', { class: 'badge', title: isApproximate(elo) ? 'Approximate rating' : 'Stockfish UCI_Elo' }, `🤖 ${isApproximate(elo) ? '~' : ''}${elo}`));
+      facts.push(`Computer ${isApproximate(elo) ? '~' : ''}${elo}`);
     }
-    if (state.mode === 'import' && (state.meta.event || state.meta.date)) badges.push(el('span', { class: 'badge' }, `📅 ${[state.meta.event, state.meta.date].filter(Boolean).join(' · ')}`));
-    if (state.meta?.evalBar) badges.push(el('span', { class: 'badge' }, evalBarLabel(state.meta)));
-    if (state.mode === 'computer' && hintsUsed()) badges.push(el('span', { class: 'badge', title: 'Hints used in this game' }, `💡 ${hintsUsed()}`));
-    if (kind === 'local') badges.push(el('span', { class: 'badge private' }, '🔒 Private'));
-    else if (state.visibility === 'private') badges.push(el('span', { class: 'badge private' }, '🔒 Private'));
-    if (kind === 'server' && state.status === 'active') badges.push(el('span', { class: 'badge live' }, '● Live'));
+    if (state.mode === 'import') facts.push(...[state.meta.event, state.meta.date].filter(Boolean));
+    if (state.meta?.evalBar) facts.push(evalBarLabel(state.meta));
+    if (state.mode === 'computer' && hintsUsed()) facts.push(`${hintsUsed()} hint${hintsUsed() === 1 ? '' : 's'} used`);
+    const flags = [];
+    if (kind === 'server' && state.status === 'active') flags.push(el('span', { class: 'badge live' }, 'Live'));
+    if (kind === 'local' || state.visibility === 'private') flags.push(el('span', { class: 'badge private' }, 'Private'));
     clear(meta,
-      el('div', { class: 'badges' }, badges),
-      state.clubId ? el('a', { href: `#/club/${state.clubId}`, class: 'club-link' }, `← ${state.clubName}`) : null);
+      el('div', { class: 'game-meta-top' },
+        state.clubId ? el('a', { href: `#/club/${state.clubId}`, class: 'club-link' }, icon('back', { size: 15 }), state.clubName) : el('span', { class: 'muted small' }, 'On this device'),
+        el('span', { class: 'badges' }, flags)),
+      el('div', { class: 'muted small game-facts' }, facts.join(' · ')),
+      state.meta?.tournament ? el('a', { href: `#/tournament/${state.meta.tournament}`, class: 'small' }, `${state.meta.tournamentName || 'Tournament'}, round ${state.meta.round}`) : null);
 
     status.className = `status ${state.status === 'finished' ? 'over' : ''}`;
     clear(status, statusText(chess));
@@ -1283,28 +1289,28 @@ export function mountGameView(root, { user, kind, id, navigate }) {
     clear(notice);
     const h = activeHint();
     if (h) {
-      clear(notice, el('div', { class: 'hint-box' }, '💡 ',
+      clear(notice, el('div', { class: 'hint-box' },
         h.level === 1 ? ['Hint: move your ', el('strong', {}, h.piece), '.'] : ['Best move: ', el('strong', {}, h.san), '.']));
     } else if (kind === 'server' && state.mode === 'online' && state.status === 'active' && state.drawOfferBy && state.drawOfferBy !== user.id && myOnlineColor()) {
       clear(notice, el('div', { class: 'draw-offer' }, 'Your opponent offers a draw.',
         button('Accept', () => serverAction('draw', { action: 'accept' }), { class: 'btn primary' }),
         button('Decline', () => serverAction('draw', { action: 'decline' }))));
     } else if (kind === 'server' && !isOwner() && !myOnlineColor() && state.status === 'active') {
-      clear(notice, el('div', { class: 'muted small' }, '👁 You are spectating this game live.'));
+      clear(notice, el('div', { class: 'muted small' }, 'You are watching this game live.'));
     }
 
     renderMoveList();
     clear(nav,
-      button('⏮', () => goToPly(0), { class: 'btn ghost', title: 'Start' }),
-      button('◀', () => setViewPly((viewPly ?? state.moves.length) - 1), { class: 'btn ghost', title: 'Previous move' }),
-      button('▶', () => setViewPly((viewPly ?? state.moves.length) + 1), { class: 'btn ghost', title: 'Next move' }),
-      button('⏭', () => goToPly(null), { class: 'btn ghost', title: 'Latest move' }));
+      button(icon('first'), () => goToPly(0), { class: 'btn ghost', title: 'Start' }),
+      button(icon('prev'), () => setViewPly((viewPly ?? state.moves.length) - 1), { class: 'btn ghost', title: 'Previous move' }),
+      button(icon('next'), () => setViewPly((viewPly ?? state.moves.length) + 1), { class: 'btn ghost', title: 'Next move' }),
+      button(icon('last'), () => goToPly(null), { class: 'btn ghost', title: 'Latest move' }));
     renderControls();
     renderBroadcastPanel();
     renderReviewPanel();
 
     const myTurn = live && state.status === 'active' && state.mode === 'online' && canMoveColor(chess.turn());
-    document.title = myTurn ? '● Your move — Chess Club' : 'Chess Club';
+    document.title = myTurn ? 'Your move — Chess Club' : 'Chess Club';
     tickClocks();
     playSounds();
     if (live) {

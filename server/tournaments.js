@@ -63,7 +63,7 @@ export function registerTournamentRoutes({ app, db, io, q, HttpError, cleanText,
     const table = standings(players.map((p) => ({ id: p.id, rating: p.rating })), pairings.map(toPairing));
     return {
       tournament: {
-        id: t.id, clubId: t.club_id, name: t.name, format: t.format, play: t.play, rounds: t.rounds,
+        id: t.id, clubId: t.club_id, clubName: q.club.get(t.club_id)?.name, name: t.name, format: t.format, play: t.play, rounds: t.rounds,
         timeControl: t.time_control ? (({ initial, increment }) => ({ initial: initial / 1000, increment: increment / 1000 }))(JSON.parse(t.time_control)) : null,
         rated: !!t.rated, status: t.status, currentRound: t.current_round, createdBy: t.created_by,
         organiser: nameOf(t.created_by),

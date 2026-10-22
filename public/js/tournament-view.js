@@ -1,6 +1,7 @@
 // Tournaments: list/create on the club page, the tournament page, and the projector panel.
 import { api, getSocket } from './api.js';
 import { el, clear, toast } from './dom.js';
+import { icon } from './icons.js';
 import { field, formData, submitting } from './ui.js';
 import { timeControlPicker, tcDescription } from './time-control.js';
 
@@ -65,9 +66,9 @@ export function clubTournamentsCard(club, { navigate }) {
       : el('p', { class: 'muted small' }, 'No tournaments yet.'));
   }
 
-  const card = el('section', { class: 'card' },
-    el('h2', {}, '🏆 Tournaments'), list,
-    el('details', { class: 'create-details' }, el('summary', {}, '+ New tournament'), form));
+  const card = el('section', { class: 'club-tournaments' },
+    el('h2', {}, 'Tournaments'), list,
+    el('details', { class: 'create-details card' }, el('summary', {}, 'New tournament'), form));
   return { el: card, load };
 }
 
@@ -106,7 +107,8 @@ export async function tournamentView(main, id, { user, navigate }) {
       return el('tr', { class: mine ? 'mine' : '' }, el('td', { class: 'muted' }, p.board),
         el('td', {}, p.white.name), el('td', { class: 'center' }, 'bye'), el('td', { class: 'muted' }, '+1'), el('td'));
     }
-    const canReport = t.play === 'otb' && (data.canManage || (mine && !p.result && t.status === 'running'));
+    // Players report their own result from the box at the top; the organiser can set any result here.
+    const canReport = t.play === 'otb' && data.canManage;
     return el('tr', { class: mine ? 'mine' : '' },
       el('td', { class: 'muted' }, p.board),
       el('td', {}, el('a', { href: `#/player/${p.white.id}` }, p.white.name)),
@@ -128,8 +130,9 @@ export async function tournamentView(main, id, { user, navigate }) {
     return el('div', { class: 'my-game card' },
       el('div', {}, `Round ${t.currentRound}, board ${p.board}: you play `, el('strong', {}, white ? 'White' : 'Black'), ' against ', el('strong', {}, opponent.name), '.'),
       p.result ? el('div', { class: 'muted' }, `Result: ${RESULT_TEXT[p.result]}`)
-        : t.play === 'online' ? el('a', { href: `#/game/${p.gameId}`, class: 'btn primary' }, '▶ Play your game')
-          : el('div', {}, el('div', { class: 'muted small' }, 'When you finish, report the result:'), resultButtons(p, true)));
+        : t.play === 'online' ? el('a', { href: `#/game/${p.gameId}`, class: 'btn primary' }, 'Play your game')
+          : data.canManage ? el('div', { class: 'muted small' }, 'Enter the result in the table below.')
+            : el('div', {}, el('div', { class: 'muted small' }, 'When you finish, report the result:'), resultButtons(p, true)));
   }
 
   function render() {
@@ -140,8 +143,8 @@ export async function tournamentView(main, id, { user, navigate }) {
     clear(root,
       el('section', { class: 'card tournament-header' },
         el('div', {},
-          el('a', { href: `#/club/${t.clubId}`, class: 'small' }, '← Club'),
-          el('h1', {}, '🏆 ', t.name),
+          el('a', { href: `#/club/${t.clubId}`, class: 'club-link small' }, icon('back', { size: 15 }), t.clubName || 'Club'),
+          el('h1', {}, t.name),
           el('div', { class: 'muted small' }, `${describe(t)} · ${t.rated ? 'Rated' : 'Unrated'} · organised by ${t.organiser}`)),
         el('div', { class: 'row' },
           el('span', { class: `badge t-${t.status}` }, t.status === 'running' ? `Round ${t.currentRound} of ${t.rounds}` : STATUS[t.status]),
@@ -158,7 +161,7 @@ export async function tournamentView(main, id, { user, navigate }) {
         ? el('section', { class: 'card' }, el('h2', {}, `Players (${others.length})`),
           others.length ? el('ol', { class: 'player-list' }, others.map((p) => el('li', {},
             el('a', { href: `#/player/${p.id}` }, p.username), el('span', { class: 'muted small' }, ` ${p.rating}`),
-            data.canManage ? el('button', { type: 'button', class: 'btn small ghost', onclick: act(() => api(`/tournaments/${id}/players/${p.id}`, { method: 'DELETE' })) }, '✕') : null)))
+            data.canManage ? el('button', { type: 'button', class: 'btn small ghost', title: `Remove ${p.username}`, 'aria-label': `Remove ${p.username}`, onclick: act(() => api(`/tournaments/${id}/players/${p.id}`, { method: 'DELETE' })) }, icon('close', { size: 15 })) : null)))
             : el('p', { class: 'muted' }, 'No players yet.'))
         : el('div', { class: 'tournament-body' },
           el('section', { class: 'card' },
@@ -248,7 +251,7 @@ export function tournamentPanel(data) {
   const t = data.tournament;
   const current = data.pairings.filter((p) => p.round === t.currentRound);
   return el('div', { class: 'tv-tournament' },
-    el('div', { class: 'tv-t-title' }, '🏆 ', t.name),
+    el('div', { class: 'tv-t-title' }, t.name),
     el('div', { class: 'muted' }, `Round ${t.currentRound} of ${t.rounds} · ${describe(t)}`),
     el('table', { class: 'tv-t-pairings' }, el('tbody', {}, current.map((p) => el('tr', {},
       el('td', { class: 'muted' }, p.board),

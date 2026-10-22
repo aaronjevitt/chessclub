@@ -2,6 +2,7 @@
 import { Chess } from '/vendor/chess.js';
 import { api, getSocket } from './api.js';
 import { el, clear, timeAgo } from './dom.js';
+import { icon } from './icons.js';
 import { renderMiniBoard } from './board.js';
 import { MODE_LABEL, resultText } from './game-view.js';
 import { Evaluator, createEvalBar } from './eval-bar.js';
@@ -72,8 +73,8 @@ function tile(game, evalBar) {
     playerRow(game, 'b'),
     evalBar ? el('div', { class: 'tv-board-row' }, evalBar.el, boardEl) : boardEl,
     playerRow(game, 'w'),
-    el('div', { class: 'tv-meta' }, MODE_LABEL[game.mode], game.timeControl ? ` · ${tcLabel(game.timeControl)}` : '',
-      moveNo ? ` · move ${moveNo}` : ''));
+    el('div', { class: 'tv-meta' }, [game.mode !== 'online' ? MODE_LABEL[game.mode] : null,
+      game.timeControl ? tcLabel(game.timeControl) : null, moveNo ? `move ${moveNo}` : null].filter(Boolean).join(' · ')));
 }
 
 /** Small tile for the strip of just-finished games along the bottom of the screen. */
@@ -117,7 +118,7 @@ export async function mountTvView(root, clubId) {
     type: 'button',
     class: 'btn ghost small',
     onclick: () => (document.fullscreenElement ? document.exitFullscreen() : document.documentElement.requestFullscreen()).catch(() => {}),
-  }, '⛶ Fullscreen');
+  }, icon('fullscreen', { size: 16 }), ' Fullscreen');
   clear(root, el('div', { class: 'tv' },
     el('header', { class: 'tv-header' },
       el('div', { class: 'tv-title' }, el('span', { class: 'logo-mark' }, '♞'), club.name, liveCount),
@@ -179,7 +180,7 @@ export async function mountTvView(root, clubId) {
   function render() {
     const now = Date.now();
     const live = games.filter((g) => g.status === 'active').length;
-    clear(liveCount, live ? el('span', { class: 'live-text' }, ` ● ${live} live`) : '');
+    clear(liveCount, live ? el('span', { class: 'live-text' }, `${live} live`) : '');
     clear(clock, new Date(now).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }));
     // Just-finished games sit small along the bottom; live games get the rest of the screen.
     const finished = games.filter((g) => g.status !== 'active');

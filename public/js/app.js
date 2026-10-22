@@ -1,10 +1,9 @@
 import './no-double-tap-zoom.js';
 import { api, getSocket, resetSocket } from './api.js';
 import { el, clear, toast, timeAgo } from './dom.js';
-import { field, formData, submitting } from './ui.js';
+import { field, formData, submitting, copyText } from './ui.js';
 import { resetView } from './account-view.js';
-import { clubSettingsCard, memberAdminActions } from './club-admin-view.js';
-import { leaderboardTable } from './leaderboard-view.js';
+import { clubSettingsCard, memberMenu } from './club-admin-view.js';
 import { gameCard } from './game-card.js';
 import { soundEnabled, setSoundEnabled, sounds } from './sounds.js';
 import { profileView } from './profile-view.js';
@@ -18,6 +17,7 @@ import { BOTS, MIN_ELO, MAX_ELO, botName, clampElo, isApproximate } from './bots
 import { mountTvView } from './tv-view.js';
 import { timeControlPicker, tcDescription, tcLabel } from './time-control.js';
 import { evalBarLabel } from './eval-settings.js';
+import { icon } from './icons.js';
 import { registerServiceWorker } from './push.js';
 
 registerServiceWorker();
@@ -50,11 +50,11 @@ function renderNav() {
       'aria-label': 'Toggle sounds',
       onclick: (e) => {
         setSoundEnabled(!soundEnabled());
-        e.currentTarget.textContent = soundEnabled() ? '🔊' : '🔇';
+        e.currentTarget.replaceChildren(icon(soundEnabled() ? 'volume' : 'mute'));
         if (soundEnabled()) sounds.move();
       },
-    }, soundEnabled() ? '🔊' : '🔇'),
-    el('a', { href: `#/player/${user.id}`, class: 'nav-user', title: 'Your profile' }, '♟', el('span', { class: 'nav-name' }, ` ${user.username}`)),
+    }, icon(soundEnabled() ? 'volume' : 'mute')),
+    el('a', { href: `#/player/${user.id}`, class: 'nav-user', title: 'Your profile' }, icon('user'), el('span', { class: 'nav-name' }, user.username)),
     el('button', {
       type: 'button',
       class: 'btn ghost small nav-logout',
@@ -71,11 +71,11 @@ function renderNav() {
 /** "Show evaluation bar" checkbox plus an optional move limit after which the bar fades away. */
 function evalBarField(note) {
   return el('div', { class: 'eval-option' },
-    el('label', { class: 'check' }, el('input', { type: 'checkbox', name: 'evalBar' }), ' Show evaluation bar ',
-      el('span', { class: 'muted small' }, note)),
-    el('label', { class: 'eval-limit muted small' }, 'for the first',
-      el('input', { type: 'number', name: 'evalBarMoves', min: 1, max: 200, placeholder: 'all', 'aria-label': 'Number of moves to show the evaluation bar for' }),
-      'moves — it fades out as the limit approaches (leave empty for the whole game)'));
+    el('label', { class: 'check' }, el('input', { type: 'checkbox', name: 'evalBar' }), ' Show evaluation bar'),
+    el('span', { class: 'eval-note muted small' }, note),
+    el('label', { class: 'eval-limit muted small', title: 'Optional. The bar fades out over the last few moves.' }, 'Hide after',
+      el('input', { type: 'number', name: 'evalBarMoves', min: 1, max: 200, placeholder: '—', 'aria-label': 'Hide the evaluation bar after this many moves (optional)' }),
+      'moves (optional)'));
 }
 
 /** Eval bar settings from a submitted form: {evalBar, evalBarMoves?}, or {} when off. */
@@ -156,9 +156,9 @@ async function homeView() {
         el('h1', {}, `Hi, ${user.username}`),
         el('p', { class: 'muted' }, myTurn.length ? `It's your move in ${myTurn.length} game${myTurn.length > 1 ? 's' : ''}.` : 'Ready for a game?')),
       el('div', { class: 'quick-play' },
-        el('a', { href: '#/new?mode=computer', class: 'quick' }, el('span', { class: 'qi' }, '🤖'), 'Play the computer'),
-        el('a', { href: '#/new?mode=self', class: 'quick' }, el('span', { class: 'qi' }, '♟'), 'Play yourself'),
-        el('a', { href: '#/new?mode=otb', class: 'quick' }, el('span', { class: 'qi' }, '📋'), 'Record a real game'))),
+        el('a', { href: '#/new?mode=computer', class: 'quick' }, el('strong', {}, 'Play the computer'), el('span', { class: 'muted small' }, 'Stockfish, any strength')),
+        el('a', { href: '#/new?mode=otb', class: 'quick' }, el('strong', {}, 'Record a real game'), el('span', { class: 'muted small' }, 'Enter moves as you play')),
+        el('a', { href: '#/puzzles', class: 'quick' }, el('strong', {}, 'Puzzles'), el('span', { class: 'muted small' }, 'From your own mistakes')))),
 
     challengesForMe.length ? el('section', {},
       el('h2', {}, 'Challenges for you'),
@@ -184,7 +184,7 @@ async function homeView() {
           el('div', {}, el('strong', {}, c.name), c.role === 'owner' ? el('span', { class: 'badge' }, 'Owner') : null,
             el('div', { class: 'muted small' }, c.description || '')),
           el('div', { class: 'muted small right' }, `${c.memberCount} member${c.memberCount === 1 ? '' : 's'}`,
-            c.activeGames ? el('div', { class: 'live-text' }, `● ${c.activeGames} live`) : null))))
+            c.activeGames ? el('div', { class: 'live-text' }, `${c.activeGames} live`) : null))))
           : el('p', { class: 'muted' }, "You haven't joined any clubs yet."),
         el('h3', {}, 'Have an invite code?'), codeForm,
         discover.length ? el('div', {},
@@ -204,10 +204,13 @@ async function homeView() {
                 }
               },
             }, 'Join'))))) : null),
-      el('section', { class: 'card' }, el('h2', {}, 'Start a club'), createForm)));
+      // Once you're in a club, starting another is the rare case: keep the form folded away.
+      mine.length
+        ? el('details', { class: 'card start-club' }, el('summary', {}, 'Start a new club'), createForm)
+        : el('section', { class: 'card' }, el('h2', {}, 'Start a club'), createForm)));
 }
 
-function challengeRow(g, refresh) {
+function challengeRow(g, refresh, { showClub = true } = {}) {
   const forMe = g.invitedId === user.id;
   const mine = g.createdBy === user.id;
   const colorText = g.creatorColor === 'random' ? 'random colors' : `${g.creatorName} plays ${g.creatorColor}`;
@@ -223,9 +226,9 @@ function challengeRow(g, refresh) {
   return el('div', { class: 'list-item' },
     el('div', {},
       el('strong', {}, mine ? (g.invitedName ? `You challenged ${g.invitedName}` : 'Your open challenge') : `${g.creatorName} challenges ${forMe ? 'you' : 'anyone'}`),
-      g.visibility === 'private' ? el('span', { class: 'badge private' }, '🔒 Private') : null,
-      g.meta?.evalBar ? el('span', { class: 'badge' }, evalBarLabel(g.meta)) : null,
-      el('div', { class: 'muted small' }, `${g.meta?.rated === false ? 'Casual' : 'Rated'} · ${tcDescription(g.timeControl)} · ${colorText} · ${g.clubName} · ${timeAgo(g.createdAt)}`)),
+      g.visibility === 'private' ? el('span', { class: 'badge private' }, 'Private') : null,
+      el('div', { class: 'muted small' }, [g.meta?.rated === false ? 'Casual' : 'Rated', tcDescription(g.timeControl), colorText,
+        g.meta?.evalBar ? evalBarLabel(g.meta) : null, showClub ? g.clubName : null, timeAgo(g.createdAt)].filter(Boolean).join(' · '))),
     el('div', { class: 'row' },
       mine ? el('button', { type: 'button', class: 'btn small', onclick: act('cancel') }, 'Cancel') : null,
       !mine ? el('button', { type: 'button', class: 'btn primary small', onclick: act('accept') }, 'Accept') : null,
@@ -267,7 +270,6 @@ async function clubView(clubId) {
   }
 
   const liveSection = el('div');
-  const leaderboardSection = el('div');
   const tournaments = clubTournamentsCard(club, { navigate });
   const challengeSection = el('div');
   const finishedSection = el('div');
@@ -287,8 +289,16 @@ async function clubView(clubId) {
     field('Time control', challengeTc.el),
     el('label', { class: 'check' }, el('input', { type: 'checkbox', name: 'rated', checked: true }), ' Rated ',
       el('span', { class: 'muted small' }, '(counts towards club ratings)')),
-    evalBarField('(visible to both players)'),
-    el('button', { type: 'submit', class: 'btn primary' }, 'Create challenge'));
+    evalBarField('Both players and spectators see it.'),
+    el('button', { type: 'submit', class: 'btn primary' }, 'Send challenge'));
+  const challengeCard = el('details', { class: 'card challenge-card' },
+    el('summary', { class: 'btn primary block' }, 'New challenge'), challengeForm);
+  /** Open the challenge form, optionally with an opponent picked (the members list's Challenge buttons). */
+  function openChallenge(opponentId = '') {
+    challengeForm.elements.opponentId.value = String(opponentId);
+    challengeCard.open = true;
+    challengeCard.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+  }
   challengeForm.addEventListener('submit', (e) => {
     e.preventDefault();
     submitting(challengeForm, async () => {
@@ -306,6 +316,7 @@ async function clubView(clubId) {
         },
       });
       toast(game.invitedName ? `Challenge sent to ${game.invitedName}` : 'Open challenge posted');
+      challengeCard.open = false;
       loadGames();
     });
   });
@@ -322,59 +333,49 @@ async function clubView(clubId) {
       el('h2', {}, 'Live games ', el('span', { class: 'count' }, String(data.active.length))),
       data.active.length
         // Oldest first, so cards keep their place as moves come in.
-        ? el('div', { class: 'game-grid live-grid' }, [...data.active].sort((a, b) => a.id - b.id).map((g) => gameCard(g)))
+        ? el('div', { class: 'game-grid live-grid' }, [...data.active].sort((a, b) => a.id - b.id).map((g) => gameCard(g, { showClub: false })))
         : el('p', { class: 'muted' }, 'No games in progress. Challenge someone, or broadcast a game against the computer or over the board.'));
     clear(challengeSection,
       el('h2', {}, 'Open challenges'),
       data.waiting.length
-        ? el('div', { class: 'list' }, data.waiting.map((g) => challengeRow(g, loadGames)))
+        ? el('div', { class: 'list' }, data.waiting.map((g) => challengeRow(g, loadGames, { showClub: false })))
         : el('p', { class: 'muted' }, 'No open challenges.'));
     clear(finishedSection,
       data.finished.length ? el('details', {},
         el('summary', {}, `Recently finished (${data.finished.length})`),
-        el('div', { class: 'game-grid' }, data.finished.map((g) => gameCard(g)))) : null);
+        el('div', { class: 'game-grid' }, data.finished.map((g) => gameCard(g, { showClub: false })))) : null);
   }
 
-  async function loadLeaderboard() {
-    let board;
-    try {
-      ({ leaderboard: board } = await api(`/clubs/${club.id}/leaderboard`));
-    } catch {
-      return;
-    }
-    clear(leaderboardSection, el('h2', {}, 'Leaderboard'),
-      board.length ? leaderboardTable(board, { limit: 10, me: user.id }) : el('p', { class: 'muted small' }, 'No rated games yet. Ratings start at 1200 and change after rated club games.'));
-  }
-
+  // Members and club ratings are one list: rated members by rating, then everyone else by name.
   async function loadMembers() {
+    let board = [];
     try {
-      members = (await api(`/clubs/${club.id}`)).members;
+      [members, { leaderboard: board }] = await Promise.all([
+        api(`/clubs/${club.id}`).then((d) => d.members),
+        api(`/clubs/${club.id}/leaderboard`),
+      ]);
     } catch {
       return;
     }
+    const rated = new Map(board.map((r, i) => [r.id, { ...r, rank: i + 1 }]));
+    const sorted = [...members].sort((a, b) => (rated.get(a.id)?.rank ?? Infinity) - (rated.get(b.id)?.rank ?? Infinity)
+      || a.username.localeCompare(b.username));
+    const isOwner = membership.role === 'owner';
     clear(membersSection,
-      el('h2', {}, 'Members ', el('span', { class: 'count' }, String(members.length))),
-      el('div', { class: 'list' }, members.map((m) => {
+      el('div', { class: 'section-head' },
+        el('h2', {}, 'Members ', el('span', { class: 'count' }, String(members.length))),
+        el('span', { class: 'muted small', title: 'Ratings start at 1200; ? = provisional (fewer than 10 rated games)' }, 'by club rating')),
+      el('div', { class: 'list members' }, sorted.map((m) => {
+        const r = rated.get(m.id);
         const panel = el('div', { class: 'member-panel' });
-        const isOwner = membership.role === 'owner';
-        return el('div', { class: 'member-entry' }, el('div', { class: 'list-item' },
-        el('div', {}, el('a', { href: `#/player/${m.id}`, class: 'member-name' }, m.username), m.role === 'owner' ? el('span', { class: 'badge' }, 'Owner') : null,
-          m.id === user.id ? el('span', { class: 'muted small' }, ' (you)') : null),
-        el('div', { class: 'row member-actions' },
-        isOwner && m.id !== user.id ? memberAdminActions(club, m, { onRemoved: loadMembers, panel }) : null,
-        m.id !== user.id ? el('button', {
-          type: 'button',
-          class: 'btn small',
-          onclick: async () => {
-            try {
-              const { game } = await api(`/clubs/${club.id}/games`, { method: 'POST', body: { mode: 'online', color: 'random', opponentId: m.id } });
-              toast(`Challenge sent to ${game.invitedName}`);
-              loadGames();
-            } catch (err) {
-              toast(err.message, 'error');
-            }
-          },
-        }, 'Challenge') : null)), panel);
+        return el('div', { class: `member-entry ${m.id === user.id ? 'me' : ''}` }, el('div', { class: 'list-item' },
+          el('span', { class: 'member-rank muted' }, r ? String(r.rank) : ''),
+          el('div', { class: 'member-who' },
+            el('a', { href: `#/player/${m.id}`, class: 'member-name' }, m.username),
+            m.role === 'owner' ? el('span', { class: 'badge' }, 'Owner') : null,
+            el('div', { class: 'muted small' }, r ? `${r.wins}–${r.draws}–${r.losses}` : 'No rated games')),
+          el('span', { class: 'member-rating', title: r?.provisional ? `Provisional (${r.games} of 10 games)` : '' }, r ? `${r.rating}${r.provisional ? '?' : ''}` : ''),
+          m.id !== user.id ? memberMenu(club, m, { isOwner, onChallenge: () => openChallenge(m.id), onRemoved: loadMembers, panel }) : el('span')), panel);
       })));
   }
 
@@ -384,10 +385,11 @@ async function clubView(clubId) {
         el('h1', {}, club.name),
         club.description ? el('p', { class: 'muted' }, club.description) : null,
         el('div', { class: 'muted small' },
-          club.isPublic ? 'Public club' : 'Private club', ' · Invite code: ', el('code', { class: 'invite' }, club.inviteCode))),
+          club.isPublic ? 'Public club' : 'Private club', ' · Invite code ', el('code', { class: 'invite' }, club.inviteCode),
+          el('button', { type: 'button', class: 'btn small ghost', onclick: () => copyText(club.inviteCode) }, 'Copy'))),
       el('div', { class: 'row' },
-        el('a', { href: `#/tv/${club.id}`, class: 'btn' }, '📺 Projector view'),
-        el('a', { href: `#/new?club=${club.id}`, class: 'btn primary' }, '📡 Broadcast a game'),
+        el('a', { href: `#/tv/${club.id}`, class: 'btn' }, 'Projector view'),
+        el('a', { href: `#/new?club=${club.id}`, class: 'btn' }, 'Broadcast a game'),
         membership.role !== 'owner' ? el('button', {
           type: 'button',
           class: 'btn ghost',
@@ -404,12 +406,11 @@ async function clubView(clubId) {
     el('div', { class: 'club-body' },
       el('div', { class: 'club-main' }, liveSection, challengeSection, tournaments.el, finishedSection),
       el('aside', { class: 'club-side' },
-        membership.role === 'owner' ? clubSettingsCard(club, () => route()) : null,
-        el('section', { class: 'card' }, leaderboardSection),
-        el('section', { class: 'card' }, el('h2', {}, 'Challenge a member'), challengeForm),
-        el('section', { class: 'card' }, membersSection)))));
+        challengeCard,
+        el('section', { class: 'card' }, membersSection),
+        membership.role === 'owner' ? clubSettingsCard(club, () => route()) : null))));
 
-  await Promise.all([loadGames(), loadMembers(), loadLeaderboard(), tournaments.load()]);
+  await Promise.all([loadGames(), loadMembers(), tournaments.load()]);
 
   let timer = null;
   const onChanged = ({ clubId: changed }) => {
@@ -418,7 +419,6 @@ async function clubView(clubId) {
     timer = setTimeout(() => {
       loadGames();
       loadMembers();
-      loadLeaderboard();
       tournaments.load();
     }, 150);
   };
@@ -457,8 +457,7 @@ async function newGameView(params) {
       el('option', { value: 'white' }, 'White'), el('option', { value: 'black' }, 'Black'), el('option', { value: 'random' }, 'Random'))),
     field('Opponent', el('select', { name: 'bot' },
       BOTS.map((b, i) => el('option', { value: i, selected: b.elo === 1500 }, `${b.name} — ${b.elo}${isApproximate(b.elo) ? ' (approx.)' : ''} · ${b.blurb}`)),
-      el('option', { value: 'custom' }, 'Custom Elo…')),
-    'Stockfish 19, running entirely in your browser.'),
+      el('option', { value: 'custom' }, 'Custom Elo…'))),
     el('div', { class: 'field custom-elo', hidden: true },
       el('span', { class: 'field-label' }, 'Computer Elo'),
       el('div', { class: 'row' },
@@ -475,17 +474,17 @@ async function newGameView(params) {
   const form = el('form', { class: 'card new-game stack' },
     el('h1', {}, 'New game'),
     el('div', { class: 'mode-options' },
-      modeOption('computer', '🤖 vs Computer', 'Play an engine that runs in your browser'),
-      modeOption('self', '♟ Play yourself', 'Move both sides — practice or analysis'),
-      modeOption('otb', '📋 Real game', 'Record / broadcast an over-the-board game')),
+      modeOption('computer', 'Play the computer', 'Stockfish, running in your browser'),
+      modeOption('self', 'Play yourself', 'Move both sides — practice or analysis'),
+      modeOption('otb', 'Record a real game', 'Enter the moves of an over-the-board game as it is played')),
     computerFields, otbFields,
-    evalBarField('(engine assessment beside the board — spectators see it too)'),
+    evalBarField('Stockfish’s assessment beside the board; spectators see it too.'),
     el('details', {},
       el('summary', {}, 'Custom starting position'),
       field('FEN', el('input', { name: 'fen', placeholder: START_FEN, spellcheck: 'false' }), 'Leave empty for the standard starting position.')),
     field('Visibility', el('select', { name: 'broadcast' },
-      el('option', { value: '' }, '🔒 Private — keep on this device only'),
-      mine.map((c) => el('option', { value: c.id, selected: String(c.id) === preClub }, `📡 Broadcast live to ${c.name}`))),
+      el('option', { value: '' }, 'Private — keep on this device only'),
+      mine.map((c) => el('option', { value: c.id, selected: String(c.id) === preClub }, `Broadcast live to ${c.name}`))),
     'You can start or stop broadcasting at any time during the game.'),
     el('button', { type: 'submit', class: 'btn primary' }, 'Start game'));
 

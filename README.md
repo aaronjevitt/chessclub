@@ -3,7 +3,7 @@
 A web-based chess club. Members create an account, start or join clubs, and play:
 
 - **Online games against club members** — open challenges or direct challenges, with live updates over WebSockets, draw offers, resignation and abort. Games can be **club-visible** (anyone in the club can spectate) or **private** (only the two players).
-- **Against the computer** — **Stockfish 19** (WebAssembly) runs entirely in your browser. Pick a named bot (Pip 400 … Gia 2800, Stockfish 3190) or any custom Elo from 400 to 3190. Stockfish's own strength limiter covers 1320 and up; below that the bot searches shallowly and sometimes plays a random move, so those ratings are approximate. If a browser can't run Stockfish, a small built-in engine takes over. On your turn, **💡 Hint** highlights which piece to move; press again to see the full move (hints used are counted on the game; not available in games against people).
+- **Against the computer** — **Stockfish 19** (WebAssembly) runs entirely in your browser. Pick a named bot (Pip 400 … Gia 2800, Stockfish 3190) or any custom Elo from 400 to 3190. Stockfish's own strength limiter covers 1320 and up; below that the bot searches shallowly and sometimes plays a random move, so those ratings are approximate. If a browser can't run Stockfish, a small built-in engine takes over. On your turn, **Hint** highlights which piece to move; press again to see the full move (hints used are counted on the game; not available in games against people).
 - **By yourself** — move both sides, for practice or analysis, from the standard position or any FEN.
 - **Real over-the-board games** — enter the moves of a physical game as it is played and declare the result.
 
@@ -15,9 +15,9 @@ Computer, self-play and over-the-board games are **private by default** and live
 
 The **club view** shows every live game in the club as a board that updates in real time, open challenges, recently finished games and the member list. **Projector view** (`#/tv/<club id>`) shows all live club games full-screen, sized to fill the display — leave it running on a projector or TV at club night. Every game can be reviewed move by move (← / → keys) and exported as PGN. When setting up a game or challenge you can turn on an **evaluation bar** — for the whole game, or only for the first N moves (it fades out over the last five moves before the limit, as a training aid): full-strength Stockfish assesses the position on the board (following move review too), and everyone watching the game — including the projector view — sees it.
 
-**Ratings and leaderboard** — every club keeps its own Elo ratings (everyone starts at 1200; provisional for the first 10 games). Online games are rated unless the challenger ticks them off; aborted games and games with fewer than two moves aren't rated. The club page and the projector (between games) show the leaderboard.
+**Ratings and leaderboard** — every club keeps its own Elo ratings (everyone starts at 1200; provisional for the first 10 games). Online games are rated unless the challenger ticks them off; aborted games and games with fewer than two moves aren't rated. The club's member list is ranked by rating, and the projector shows the leaderboard between games.
 
-**Player profiles** (`#/player/<id>`, or tap your name / ♟) — ratings per club with a rating graph, record against members and against the computer, average review accuracy and recent games. You can see the profiles of people who share a club with you.
+**Player profiles** (`#/player/<id>`, or tap your name / the person icon) — ratings per club with a rating graph, record against members and against the computer, average review accuracy and recent games. You can see the profiles of people who share a club with you.
 
 **Tournaments** — any member can create one from the club page: **Swiss** (paired by score, no rematches, fair byes, balanced colours) or **round robin**, played **online** (games are created automatically each round, and the next round is paired as soon as the last game ends) or **over the board** (the organiser or the players report results). Standings use points then Buchholz; tournaments can be rated. The projector shows the standings of a running tournament.
 
@@ -27,9 +27,9 @@ The **club view** shows every live game in the club as a board that updates in r
 
 **Notifications** — turn them on per device on your profile page to hear when it's your move, someone challenges you, accepts your challenge or offers a draw, or a tournament round pairs you (only while you don't have that game open). This is standard Web Push: the server generates its own keys, no third-party account is needed, and it requires HTTPS. On iPhone/iPad (iOS 16.4+), add Chess Club to the Home Screen first (Share → *Add to Home Screen*) and turn notifications on from there — the app is installable on other devices too.
 
-**Also** — move sounds (🔊 in the header to mute), premoves in online games (move while it's your opponent's turn; tap anywhere to cancel), club admin tools for owners (rename, privacy, new invite code, remove members, issue password-reset links), and account safety: login and sign-up rate limits, and password changes that sign out your other devices.
+**Also** — move sounds (speaker button in the header to mute), premoves in online games (move while it's your opponent's turn; tap anywhere to cancel), club admin tools for owners (rename, privacy, new invite code, remove members, issue password-reset links), and account safety: login and sign-up rate limits, and password changes that sign out your other devices.
 
-**Forgotten password** — there is no email, so the club owner opens the member's ⋯ menu in the club member list, chooses *Reset password* and sends them the one-time link (valid for 24 hours).
+**Forgotten password** — there is no email, so the club owner opens the member's … menu in the club member list, chooses *Reset password* and sends them the one-time link (valid for 24 hours).
 
 ## Running
 

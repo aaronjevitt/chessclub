@@ -1,4 +1,5 @@
 // Interactive chessboard: click-to-move or drag-and-drop, legal-move hints, promotion picker.
+import { icon } from './icons.js';
 
 const FILES = 'abcdefgh';
 const PIECE_NAMES = { k: 'king', q: 'queen', r: 'rook', b: 'bishop', n: 'knight', p: 'pawn' };
@@ -463,7 +464,8 @@ export class Board {
       const cancel = document.createElement('button');
       cancel.type = 'button';
       cancel.className = 'cancel';
-      cancel.textContent = '✕';
+      cancel.setAttribute('aria-label', 'Cancel');
+      cancel.appendChild(icon('close', { size: 16 }));
       cancel.addEventListener('click', (ev) => {
         ev.stopPropagation();
         this._closePromotion();

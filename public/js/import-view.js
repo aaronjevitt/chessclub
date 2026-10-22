@@ -12,9 +12,8 @@ export function importCard(clubs, { preClub, navigate }) {
     if (f.size > 2_000_000) return toast('That file is too large', 'error');
     text.value = await f.text();
   });
-  const form = el('form', { class: 'card stack import-pgn' },
-    el('h2', {}, '📥 Import a game'),
-    el('p', { class: 'muted small' }, 'Paste a PGN — from chess.com, lichess or a scoresheet — to review it here. Its mistakes also become puzzles. Several games at once are fine (up to 50).'),
+  const form = el('form', { class: 'stack' },
+    el('p', { class: 'muted small' }, 'Paste a PGN from chess.com, lichess or a scoresheet to review it here; its mistakes also become puzzles. Up to 50 games at once.'),
     field('PGN', text),
     field('…or choose a file', file),
     field('You played', el('select', { name: 'playerColor' },
@@ -38,5 +37,5 @@ export function importCard(clubs, { preClub, navigate }) {
       navigate(`#/player/${games[0].createdBy}`);
     });
   });
-  return form;
+  return el('details', { class: 'card import-pgn' }, el('summary', {}, 'Import games from PGN'), form);
 }

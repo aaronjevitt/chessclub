@@ -64,10 +64,11 @@ export async function profileView(main, id) {
     el('section', {},
       el('h2', {}, 'Recent games'),
       p.recent.length
-        ? el('div', { class: 'game-grid' }, p.recent.map((g) => el('div', { class: 'profile-game' },
-          gameCard(g),
-          g.accuracy !== null ? el('div', { class: 'muted small accuracy-tag' }, `Accuracy ${g.accuracy}%`) : null)))
+        ? el('div', { class: 'game-grid' }, p.recent.map((g) => gameCard(g, { extra: g.accuracy !== null ? `Accuracy ${g.accuracy}%` : null })))
         : el('p', { class: 'muted' }, 'No finished games yet.')),
-    user.isMe ? notificationsCard() : null,
-    user.isMe ? el('section', { class: 'card narrow-card' }, el('h2', {}, 'Change password'), changePasswordForm()) : null));
+    user.isMe ? el('section', {},
+      el('h2', {}, 'Settings'),
+      el('div', { class: 'settings-grid' },
+        notificationsCard(),
+        el('section', { class: 'card' }, el('h2', {}, 'Change password'), changePasswordForm()))) : null));
 }

@@ -2,6 +2,7 @@
 import { api } from './api.js';
 import { el, clear, toast } from './dom.js';
 import { field, formData, submitting, copyText } from './ui.js';
+import { icon } from './icons.js';
 
 /** Card for the owner: rename, describe, public/private, new invite code. */
 export function clubSettingsCard(club, onChanged) {
@@ -21,11 +22,10 @@ export function clubSettingsCard(club, onChanged) {
     });
   });
   return el('details', { class: 'card club-settings' },
-    el('summary', {}, '⚙ Club settings'),
+    el('summary', {}, 'Club settings'),
     form,
     el('div', { class: 'row invite-row' },
       el('span', { class: 'muted small' }, 'Invite code'), codeEl,
-      el('button', { type: 'button', class: 'btn small ghost', onclick: () => copyText(codeEl.textContent) }, 'Copy'),
       el('button', {
         type: 'button',
         class: 'btn small',
@@ -40,11 +40,14 @@ export function clubSettingsCard(club, onChanged) {
             toast(err.message, 'error');
           }
         },
-      }, 'New code')));
+      }, 'Replace code')));
 }
 
-/** Owner-only buttons on a member row: one-time password reset link, remove from club. */
-export function memberAdminActions(club, member, { onRemoved, panel }) {
+/**
+ * The ⋯ menu on a member row: Challenge for everyone; for the owner also a one-time password reset link
+ * and removing the member.
+ */
+export function memberMenu(club, member, { isOwner, onChallenge, onRemoved, panel }) {
   const resetLink = async () => {
     try {
       const { path, expiresAt } = await api(`/clubs/${club.id}/members/${member.id}/reset-link`, { method: 'POST' });
@@ -55,7 +58,7 @@ export function memberAdminActions(club, member, { onRemoved, panel }) {
         el('div', { class: 'row' },
           el('input', { value: url, readonly: true, onfocus: (e) => e.target.select(), 'aria-label': 'Reset link' }),
           el('button', { type: 'button', class: 'btn small primary', onclick: () => copyText(url) }, 'Copy'),
-          el('button', { type: 'button', class: 'btn small ghost', onclick: () => clear(panel) }, '✕'))));
+          el('button', { type: 'button', class: 'btn small ghost', title: 'Close', 'aria-label': 'Close', onclick: () => clear(panel) }, icon('close', { size: 16 })))));
     } catch (err) {
       toast(err.message, 'error');
     }
@@ -71,9 +74,11 @@ export function memberAdminActions(club, member, { onRemoved, panel }) {
     }
   };
   const menu = el('details', { class: 'member-menu' },
-    el('summary', { class: 'btn small ghost', title: 'Manage member', 'aria-label': `Manage ${member.username}` }, '⋯'),
+    el('summary', { class: 'btn small ghost', title: 'More', 'aria-label': `More for ${member.username}` }, icon('more', { size: 16 })),
     el('div', { class: 'menu-items' },
-      el('button', { type: 'button', class: 'btn small ghost', title: 'Create a one-time password reset link', onclick: () => { menu.open = false; resetLink(); } }, 'Reset password'),
-      el('button', { type: 'button', class: 'btn small ghost danger-text', onclick: () => { menu.open = false; remove(); } }, 'Remove from club')));
+      el('button', { type: 'button', class: 'btn small ghost', onclick: () => { menu.open = false; onChallenge(); } }, 'Challenge'),
+      el('a', { href: `#/player/${member.id}`, class: 'btn small ghost' }, 'Profile'),
+      isOwner ? el('button', { type: 'button', class: 'btn small ghost', title: 'Create a one-time password reset link', onclick: () => { menu.open = false; resetLink(); } }, 'Reset password') : null,
+      isOwner ? el('button', { type: 'button', class: 'btn small ghost danger-text', onclick: () => { menu.open = false; remove(); } }, 'Remove from club') : null));
   return menu;
 }

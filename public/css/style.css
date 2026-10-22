@@ -69,7 +69,7 @@ code.invite { background: var(--surface-2); border: 1px solid var(--border); pad
 .logo-mark { font-size: 1.6rem; line-height: 1; color: var(--accent); }
 #nav { display: flex; align-items: center; gap: 1rem; flex-wrap: wrap; justify-content: flex-end; }
 #nav a { color: var(--text); }
-.nav-user { color: var(--muted); font-size: .9rem; }
+.nav-user { color: var(--muted); font-size: .9rem; display: inline-flex; align-items: center; gap: .3rem; }
 main { max-width: 1180px; margin: 0 auto; padding: 1.25rem; }
 .narrow { max-width: 620px; margin: 0 auto; }
 .loading { padding: 3rem; text-align: center; color: var(--muted); }
@@ -115,12 +115,10 @@ label.check { display: flex; align-items: center; gap: .4rem; font-size: .9rem; 
 .hero { display: flex; justify-content: space-between; align-items: center; gap: 1.5rem; flex-wrap: wrap; }
 .quick-play { display: flex; gap: .75rem; flex-wrap: wrap; }
 .quick {
-  display: flex; flex-direction: column; align-items: center; gap: .3rem; width: 132px; padding: .9rem .5rem;
-  border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface-2);
-  color: var(--text); font-weight: 600; font-size: .88rem; text-align: center;
+  display: flex; flex-direction: column; gap: .2rem; width: 170px; padding: .8rem .9rem;
+  border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface-2); color: var(--text);
 }
 .quick:hover { border-color: var(--accent); text-decoration: none; background: var(--accent-soft); }
-.qi { font-size: 1.8rem; line-height: 1; }
 .list { display: flex; flex-direction: column; gap: .5rem; }
 .list-item {
   display: flex; justify-content: space-between; align-items: center; gap: 1rem;
@@ -128,6 +126,10 @@ label.check { display: flex; align-items: center; gap: .4rem; font-size: .9rem; 
 }
 a.list-item:hover { border-color: var(--accent); text-decoration: none; }
 .live-text { color: var(--live); font-weight: 600; }
+.live-text::before, .badge.live::before {
+  content: ''; display: inline-block; width: .5em; height: .5em; border-radius: 50%; background: currentColor;
+  margin-right: .35em; vertical-align: .08em;
+}
 details summary { cursor: pointer; font-weight: 600; margin: 1rem 0 .7rem; }
 
 .badges { display: flex; gap: .3rem; flex-wrap: wrap; }
@@ -137,7 +139,6 @@ details summary { cursor: pointer; font-weight: 600; margin: 1rem 0 .7rem; }
 }
 .badges .badge { margin-left: 0; }
 .badge.live { color: var(--live); border-color: color-mix(in srgb, var(--live) 40%, transparent); }
-.badge.mode-online { color: var(--accent); }
 .badge.private { color: var(--muted); }
 
 /* ---------- game cards ---------- */
@@ -237,7 +238,7 @@ details summary { cursor: pointer; font-weight: 600; margin: 1rem 0 .7rem; }
 .material { color: var(--muted); font-size: .85rem; }
 .side-panel { display: flex; flex-direction: column; gap: .85rem; position: sticky; top: 76px; }
 .game-meta { display: flex; justify-content: space-between; align-items: center; gap: .5rem; flex-wrap: wrap; }
-.club-link { font-size: .85rem; }
+.club-link { font-size: .85rem; display: inline-flex; align-items: center; gap: .25rem; }
 .status { font-weight: 700; font-size: 1.05rem; }
 .status.over { color: var(--accent); }
 .draw-offer { display: flex; gap: .5rem; align-items: center; flex-wrap: wrap; padding: .6rem; border-radius: 8px; background: var(--accent-soft); font-weight: 600; }
@@ -276,10 +277,10 @@ button.move:hover { background: var(--border); }
   main { padding: 1rem; }
   .topbar { padding: .6rem 1rem; }
   .nav-name, .nav-logout, .logo-text { display: none; }
-  .nav-user { font-size: 1.1rem; }
   #nav { gap: .55rem; }
   #nav a { white-space: nowrap; }
-  .quick { width: calc(33% - .5rem); min-width: 92px; }
+  .quick { width: 100%; }
+  .quick-play { width: 100%; }
   .game-grid { grid-template-columns: repeat(2, 1fr); }
 }
 
@@ -508,7 +509,7 @@ html, body { overflow-x: hidden; overflow-x: clip; }
 .eval-option { display: flex; flex-direction: column; gap: .3rem; }
 .eval-limit { display: flex; align-items: center; gap: .4rem; flex-wrap: wrap; padding-left: 1.6rem; }
 .eval-limit input { width: 4.5rem; padding: .3rem .45rem; }
-.eval-option:not(:has(input[name=evalBar]:checked)) .eval-limit { opacity: .45; }
+.eval-option:not(:has(input[name=evalBar]:checked)) .eval-limit { display: none; }
 
 /* ---------- hints ---------- */
 .sq.highlighted { box-shadow: inset 0 0 0 4px var(--highlight); }
@@ -564,8 +565,6 @@ a.nav-user { color: var(--muted) !important; }
 .rating-big { font-size: 2rem; font-weight: 800; font-variant-numeric: tabular-nums; }
 .rating-graph { width: 100%; height: 60px; margin-top: .4rem; }
 .rating-graph polyline { fill: none; stroke: var(--accent); stroke-width: 2; vector-effect: non-scaling-stroke; }
-.profile-game { display: flex; flex-direction: column; gap: .3rem; }
-.accuracy-tag { padding-left: .3rem; }
 .narrow-card { max-width: 480px; }
 .member-name { font-weight: 700; color: var(--text); }
 
@@ -608,10 +607,55 @@ table.standings tr.withdrawn { opacity: .6; }
 .tv-t-pairings td { padding: .35em .3em; border-bottom: 1px solid var(--border); }
 .tv-side table.standings { font-size: 1em; }
 .tournament-badge { color: var(--accent); }
-.sound-toggle { font-size: 1rem; padding: .2rem .45rem; }
+.sound-toggle { padding: .3rem .45rem; line-height: 0; }
 
 /* Puzzles */
 .puzzle-panel h1 { margin: 0 0 .25rem; font-size: 1.4rem; }
 .puzzle-prompt { margin: .75rem 0; }
 .puzzle-prompt p { margin: .4rem 0; }
 .puzzle-actions { margin: .75rem 0; }
+
+/* ---------- icons and tidy-up ---------- */
+.icon { flex-shrink: 0; vertical-align: -.2em; }
+
+.game-meta-top { display: flex; justify-content: space-between; align-items: center; gap: .5rem; }
+.game-facts { margin-top: .3rem; }
+.game-actions { margin-bottom: .5rem; }
+.game-tools { gap: .25rem; border-top: 1px solid var(--border); padding-top: .5rem; }
+.game-tools .btn { color: var(--muted); }
+
+.game-card .players .badge { margin-left: .4rem; }
+
+.section-head { display: flex; justify-content: space-between; align-items: baseline; gap: .5rem; }
+.section-head h2 { margin-bottom: .6rem; }
+.members .list-item { display: grid; grid-template-columns: 1.4em minmax(0, 1fr) auto auto; gap: .6rem; padding: .55rem .7rem; }
+.members .member-entry.me .list-item { border-color: var(--accent); }
+.member-rank { font-size: .85rem; text-align: right; }
+.member-who { min-width: 0; }
+.member-who .member-name { overflow: hidden; text-overflow: ellipsis; }
+.member-rating { font-weight: 700; font-variant-numeric: tabular-nums; }
+.member-actions .btn { white-space: nowrap; }
+
+.challenge-card { padding: .9rem; }
+.challenge-card > summary { list-style: none; margin: 0; }
+.challenge-card > summary::-webkit-details-marker { display: none; }
+.challenge-card[open] > summary { margin-bottom: 1rem; }
+.club-tournaments > .list { margin-bottom: .6rem; }
+.club-tournaments .create-details { padding: .2rem 1rem; }
+.club-tournaments .create-details[open] { padding-bottom: 1rem; }
+
+.settings-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 1rem; align-items: start; }
+
+.challenge-card:not([open]) { background: none; border: 0; box-shadow: none; padding: 0; }
+.member-who .muted { white-space: nowrap; }
+.start-club > summary { margin: 0; }
+.start-club[open] > summary { margin-bottom: 1rem; }
+.profile-logout { display: none; }
+@media (max-width: 560px) {
+  .profile-logout { display: inline-flex; margin-top: .5rem; }
+}
+.import-pgn > summary { margin: 0; }
+.import-pgn[open] > summary { margin-bottom: 1rem; }
+.narrow > * + * { margin-top: 1rem; }
+.eval-note { padding-left: 1.6rem; margin-top: -.2rem; }
+.mode-option input { flex-shrink: 0; }
