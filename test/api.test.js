@@ -601,3 +601,14 @@ test('PGN import: several games, side detection, private by default, reviewable'
   assert.equal(shared.meta.playerColor, undefined);
   assert.equal((await b.get(`/api/games/${shared.id}`)).status, 200);
 });
+
+test('PGN import accepts large files', async () => {
+  const a = await registered('pgnbig');
+  const club = (await a.post('/api/clubs', { name: 'Big PGN Club' })).body.club;
+  const game = (i) => `[Event "Game ${i}"]\n[White "A"]\n[Black "B"]\n[Result "*"]\n${'{' + 'x'.repeat(20000) + '}'}\n1. e4 e5 2. Nf3 Nc6 *\n`;
+  const pgn = Array.from({ length: 30 }, (_, i) => game(i)).join('\n');
+  assert.ok(pgn.length > 500_000);
+  const r = await a.post(`/api/clubs/${club.id}/import`, { pgn });
+  assert.equal(r.status, 201, JSON.stringify(r.body).slice(0, 200));
+  assert.equal(r.body.games.length, 30);
+});

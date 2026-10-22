@@ -56,6 +56,8 @@ export function createServer({ dbFile = path.join(ROOT, 'data', 'chessclub.db'),
   // Behind nginx (or another reverse proxy on the local network): trust its X-Forwarded-* headers so
   // req.ip is the player's address (for login limits) and req.secure reflects HTTPS (for secure cookies).
   app.set('trust proxy', process.env.TRUST_PROXY || 'loopback, linklocal, uniquelocal');
+  // PGN imports can be large (up to 50 games); everything else is small.
+  app.use('/api/clubs/:id/import', express.json({ limit: '3mb' }));
   app.use(express.json({ limit: '200kb' }));
   app.use(auth.attachUser);
   // Browsers must check for new app files on every load (cheap 304s via ETag), so updates reach phones at once.
