@@ -172,7 +172,10 @@ details summary { cursor: pointer; font-weight: 600; margin: 1rem 0 .7rem; }
   width: 100%; border-radius: 6px; overflow: hidden; user-select: none; touch-action: none;
   box-shadow: 0 2px 10px rgba(0, 0, 0, .2); container-type: inline-size;
 }
-.sq { position: relative; display: flex; align-items: center; justify-content: center; min-width: 0; min-height: 0; overflow: hidden; }
+/* No overflow clipping: an animated piece slides across other squares. */
+.sq { position: relative; display: flex; align-items: center; justify-content: center; min-width: 0; min-height: 0; }
+.board { overflow: hidden; }
+.piece.moving { z-index: 6; }
 .sq.light { background: var(--light-sq); }
 .sq.dark { background: var(--dark-sq); }
 .sq.last::before, .sq.selected::before { content: ""; position: absolute; inset: 0; background: var(--last-move); }

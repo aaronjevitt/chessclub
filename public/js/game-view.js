@@ -501,7 +501,41 @@ export function mountGameView(root, { user, kind, id, navigate }) {
     }
   }
 
-  function setViewPly(ply) {
+  // Fast-forward: in a review, jumping several moves plays through them quickly, each one animated.
+  let fastForward = null;
+
+  function stopFastForward() {
+    if (!fastForward) return;
+    clearTimeout(fastForward.timer);
+    board.animationMs = fastForward.normalMs;
+    fastForward = null;
+  }
+
+  function goToPly(target) {
+    stopFastForward();
+    const total = state.moves.length;
+    target = Math.max(0, Math.min(total, target ?? total));
+    const current = viewPly ?? total;
+    const distance = Math.abs(target - current);
+    if (!review || review.retry || distance <= 1 || !board.animationMs) return setViewPly(target);
+    // Long jumps go faster per move, so even the whole game takes about two seconds.
+    const stepMs = Math.max(60, Math.min(220, 2000 / distance));
+    fastForward = { normalMs: board.animationMs, timer: null };
+    board.animationMs = Math.round(stepMs * 0.85);
+    const direction = Math.sign(target - current);
+    const step = () => {
+      const ff = fastForward;
+      const now = viewPly ?? total;
+      setViewPly(now + direction, { keepFastForward: true });
+      if (fastForward !== ff) return;
+      if ((viewPly ?? total) === target) return stopFastForward();
+      ff.timer = setTimeout(step, stepMs);
+    };
+    step();
+  }
+
+  function setViewPly(ply, { keepFastForward = false } = {}) {
+    if (!keepFastForward) stopFastForward();
     if (review?.explore) review.explore = null; // stepping through the game leaves an explored line
     if (ply !== null) ply = Math.max(0, Math.min(state.moves.length, ply));
     viewPly = ply === state.moves.length ? null : ply;
@@ -753,7 +787,7 @@ export function mountGameView(root, { user, kind, id, navigate }) {
     const current = viewPly ?? state.moves.length;
     const list = review.data.keyMoments;
     const target = direction > 0 ? list.find((p) => p > current) : [...list].reverse().find((p) => p < current);
-    if (target !== undefined) setViewPly(target);
+    if (target !== undefined) goToPly(target);
   }
 
   // ---------- retry mistakes ----------
@@ -894,6 +928,7 @@ export function mountGameView(root, { user, kind, id, navigate }) {
   }
 
   function exploreMove(move) {
+    stopFastForward(); // branch from the position on screen, not wherever a fast-forward was heading
     const basePly = review.explore ? review.explore.basePly : viewPly ?? state.moves.length;
     const line = review.explore ? review.explore.line : [];
     const chess = buildChess({ ...state, moves: [...state.moves.slice(0, basePly), ...line] });
@@ -1182,10 +1217,10 @@ export function mountGameView(root, { user, kind, id, navigate }) {
 
     renderMoveList();
     clear(nav,
-      button('⏮', () => setViewPly(0), { class: 'btn ghost', title: 'Start' }),
+      button('⏮', () => goToPly(0), { class: 'btn ghost', title: 'Start' }),
       button('◀', () => setViewPly((viewPly ?? state.moves.length) - 1), { class: 'btn ghost', title: 'Previous move' }),
       button('▶', () => setViewPly((viewPly ?? state.moves.length) + 1), { class: 'btn ghost', title: 'Next move' }),
-      button('⏭', () => setViewPly(null), { class: 'btn ghost', title: 'Latest move' }));
+      button('⏭', () => goToPly(null), { class: 'btn ghost', title: 'Latest move' }));
     renderControls();
     renderBroadcastPanel();
     renderReviewPanel();
@@ -1252,6 +1287,7 @@ export function mountGameView(root, { user, kind, id, navigate }) {
     bot?.terminate();
     reviewEngine?.terminate();
     hintEngine?.terminate();
+    stopFastForward();
     document.body.classList.remove('has-review-dock');
     if (analysing) analysing.cancelled = true;
     clearInterval(clockTimer);

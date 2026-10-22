@@ -75,6 +75,9 @@ export class Board {
     this.selected = null;
     this.drag = null;
     this.annotations = { arrows: [], badges: [], highlights: [] };
+    // Pieces slide to their new squares when the position changes (0 = no animation).
+    this.animationMs = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ? 0 : 180;
+    this.skipNextAnimation = false;
 
     this.el = document.createElement('div');
     this.el.className = 'board';
@@ -94,10 +97,67 @@ export class Board {
   }
 
   setPosition(chess, lastMove = null) {
+    const before = this._pieceMap();
     this.chess = chess;
     this.lastMove = lastMove;
     this.selected = null;
     this.render();
+    // A piece the user just dropped is already where it belongs; don't slide it again.
+    if (this.skipNextAnimation) this.skipNextAnimation = false;
+    else if (before && this.animationMs > 0) this._animate(before, this._pieceMap());
+  }
+
+  _pieceMap() {
+    if (!this.chess) return null;
+    const map = {};
+    for (const row of this.chess.board()) for (const p of row) if (p) map[p.square] = p.color + p.type;
+    return map;
+  }
+
+  /**
+   * Slide pieces from their old squares to their new ones (handles normal moves, captures, castling and
+   * promotion). Skipped for big jumps, where matching old and new squares would be guesswork.
+   */
+  _animate(before, after) {
+    const appeared = Object.keys(after).filter((sq) => after[sq] !== before[sq]);
+    const vanished = Object.keys(before).filter((sq) => before[sq] !== after[sq]);
+    if (!appeared.length || appeared.length > 4) return;
+    const coords = (sq) => [FILES.indexOf(sq[0]), Number(sq[1])];
+    const pairs = [];
+    for (const to of appeared) {
+      const piece = after[to];
+      const candidates = vanished.filter((sq) => before[sq] === piece || (before[sq] === piece[0] + 'p' && piece[1] !== 'p'));
+      if (!candidates.length) continue;
+      const [tf, tr] = coords(to);
+      // Prefer an identical piece over a promoting pawn, then the nearest square.
+      candidates.sort((a, b) => (before[a] === piece ? 0 : 1) - (before[b] === piece ? 0 : 1)
+        || Math.hypot(coords(a)[0] - tf, coords(a)[1] - tr) - Math.hypot(coords(b)[0] - tf, coords(b)[1] - tr));
+      const from = candidates[0];
+      vanished.splice(vanished.indexOf(from), 1);
+      pairs.push({ from, to });
+    }
+    const cell = (sq) => this.el.querySelector(`[data-square="${sq}"]`);
+    const moving = [];
+    for (const { from, to } of pairs) {
+      const pieceEl = cell(to)?.querySelector('.piece');
+      if (!pieceEl) continue;
+      const dx = cell(from).offsetLeft - cell(to).offsetLeft;
+      const dy = cell(from).offsetTop - cell(to).offsetTop;
+      pieceEl.style.transition = 'none';
+      pieceEl.style.transform = `translate(${dx}px, ${dy}px)`;
+      pieceEl.classList.add('moving');
+      moving.push(pieceEl);
+    }
+    if (!moving.length) return;
+    void this.el.offsetWidth; // apply the starting offsets before transitioning back to place
+    for (const pieceEl of moving) {
+      pieceEl.style.transition = `transform ${this.animationMs}ms ease-out`;
+      pieceEl.style.transform = '';
+      pieceEl.addEventListener('transitionend', () => {
+        pieceEl.classList.remove('moving');
+        pieceEl.style.transition = '';
+      }, { once: true });
+    }
   }
 
   setOrientation(orientation) {
@@ -298,7 +358,10 @@ export class Board {
       return;
     }
     const to = this._squareAt(e.clientX, e.clientY);
-    if (to && to !== drag.from && this._targets(drag.from).includes(to)) this._attempt(drag.from, to);
+    if (to && to !== drag.from && this._targets(drag.from).includes(to)) {
+      this.skipNextAnimation = true;
+      this._attempt(drag.from, to);
+    }
   }
 
   _attempt(from, to) {
