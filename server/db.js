@@ -122,6 +122,17 @@ export function openDb(file) {
       rated INTEGER NOT NULL DEFAULT 0
     );
 
+    -- Server settings (e.g. the generated Web Push keys).
+    CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT NOT NULL);
+    -- Web Push subscriptions, one per device that enabled notifications.
+    CREATE TABLE IF NOT EXISTS push_subscriptions (
+      endpoint TEXT PRIMARY KEY,
+      user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      p256dh TEXT NOT NULL,
+      auth TEXT NOT NULL,
+      created_at INTEGER NOT NULL
+    );
+
     -- One-time password reset links created by a club owner for a member (token stored hashed).
     CREATE TABLE IF NOT EXISTS password_resets (
       token_hash TEXT PRIMARY KEY,

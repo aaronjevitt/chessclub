@@ -2,6 +2,7 @@
 import { api } from './api.js';
 import { el, clear, toast } from './dom.js';
 import { field, formData, submitting } from './ui.js';
+import { pushSupported, needsHomeScreen, pushEnabled, enablePush, disablePush, sendTestPush } from './push.js';
 
 /** #/reset/<token>: works whether or not you're logged in; logs you in with the new password. */
 export async function resetView(main, token, onLoggedIn) {
@@ -51,4 +52,50 @@ export function changePasswordForm() {
     });
   });
   return form;
+}
+
+/** Turn "your move" notifications on or off for this device. */
+export function notificationsCard() {
+  const body = el('div', {});
+  const card = el('section', { class: 'card narrow-card' }, el('h2', {}, 'Notifications'), body);
+  const render = async () => {
+    if (needsHomeScreen()) {
+      clear(body, el('p', { class: 'muted' },
+        'On iPhone and iPad, notifications work once Chess Club is on your Home Screen: tap the Share button, ',
+        'choose “Add to Home Screen”, open it from there and come back to this page.'));
+      return;
+    }
+    if (!pushSupported()) {
+      clear(body, el('p', { class: 'muted' }, 'This browser does not support notifications.'));
+      return;
+    }
+    const on = await pushEnabled().catch(() => false);
+    const toggle = el('button', { class: on ? 'btn' : 'btn primary', type: 'button' }, on ? 'Turn off on this device' : 'Turn on for this device');
+    toggle.addEventListener('click', async () => {
+      toggle.disabled = true;
+      toggle.textContent = on ? 'Turning off…' : 'Turning on…';
+      try {
+        if (on) await disablePush();
+        else await enablePush();
+        toast(on ? 'Notifications off for this device' : 'Notifications on', 'success');
+      } catch (err) {
+        toast(err.message, 'error');
+      }
+      render();
+    });
+    const test = on ? el('button', {
+      class: 'btn', type: 'button',
+      onclick: async () => {
+        const { sent } = await sendTestPush();
+        if (!sent) toast('Nothing was sent — try turning notifications off and on again', 'error');
+      },
+    }, 'Send a test') : null;
+    clear(body,
+      el('p', { class: 'muted small' },
+        'Get a notification when it’s your move, someone challenges you, accepts your challenge or offers a draw, ',
+        'and when a tournament round pairs you — only while you don’t have the game open.'),
+      el('div', { class: 'row' }, toggle, test));
+  };
+  render();
+  return card;
 }

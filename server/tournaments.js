@@ -6,7 +6,7 @@ import { standings, roundRobin, swissRound } from './pairing.js';
 
 const RESULTS = new Set(['1-0', '0-1', '1/2-1/2']);
 
-export function registerTournamentRoutes({ app, db, io, q, HttpError, cleanText, ratings, notify, onGameFinished }) {
+export function registerTournamentRoutes({ app, db, io, q, HttpError, cleanText, ratings, notify, onGameFinished, pushGame }) {
   const s = {
     byClub: db.prepare("SELECT * FROM tournaments WHERE club_id = ? ORDER BY CASE status WHEN 'running' THEN 0 WHEN 'registration' THEN 1 ELSE 2 END, updated_at DESC LIMIT 50"),
     get: db.prepare('SELECT * FROM tournaments WHERE id = ?'),
@@ -98,7 +98,11 @@ export function registerTournamentRoutes({ app, db, io, q, HttpError, cleanText,
         tc ? JSON.stringify(tc) : null, tc?.initial ?? null, tc?.initial ?? null, null,
       );
       s.setGame.run(Number(lastInsertRowid), p.id);
-      notify(Number(lastInsertRowid));
+      const g = q.game.get(Number(lastInsertRowid));
+      notify(g.id);
+      const label = `${t.name}, round ${round}`;
+      pushGame(p.white_id, g, 'Tournament game ready', `${label}: you have White vs ${g.black_name} — your move`);
+      pushGame(p.black_id, g, 'Tournament game ready', `${label}: you have Black vs ${g.white_name}`);
     }
   }
 

@@ -16,6 +16,9 @@ import { BOTS, MIN_ELO, MAX_ELO, botName, clampElo, isApproximate } from './bots
 import { mountTvView } from './tv-view.js';
 import { timeControlPicker, tcDescription, tcLabel } from './time-control.js';
 import { evalBarLabel } from './eval-settings.js';
+import { registerServiceWorker } from './push.js';
+
+registerServiceWorker();
 
 const START_FEN = 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1';
 const main = document.getElementById('main');

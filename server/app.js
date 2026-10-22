@@ -12,6 +12,7 @@ import { registerClubAdminRoutes } from './clubadmin.js';
 import { createRatings } from './ratings.js';
 import { registerProfileRoutes } from './profiles.js';
 import { registerTournamentRoutes } from './tournaments.js';
+import { createPush } from './push.js';
 import { summarizeReview } from './review-summary.js';
 import { START_FEN, replay, gameOverInfo, tryMove, isValidFen } from './chesslogic.js';
 import {
@@ -41,12 +42,13 @@ function makeInviteCode() {
   return Array.from(bytes, (b) => alphabet[b % alphabet.length]).join('');
 }
 
-export function createServer({ dbFile = path.join(ROOT, 'data', 'chessclub.db'), rateLimits = true } = {}) {
+export function createServer({ dbFile = path.join(ROOT, 'data', 'chessclub.db'), rateLimits = true, pushSend = null } = {}) {
   const db = openDb(dbFile);
   const auth = createAuth(db);
   const app = express();
   const server = http.createServer(app);
   const io = new SocketServer(server);
+  const push = createPush({ db, io, send: pushSend });
 
   app.disable('x-powered-by');
   // Behind nginx (or another reverse proxy on the local network): trust its X-Forwarded-* headers so
@@ -302,6 +304,12 @@ export function createServer({ dbFile = path.join(ROOT, 'data', 'chessclub.db'),
     return state;
   }
 
+  /** Fire-and-forget a push notification to a player who isn't watching the game. */
+  function pushGame(userId, g, title, body) {
+    push.notifyUser(userId, { title, body, url: `/#/game/${g.id}`, tag: `game-${g.id}` }, { unlessWatching: `game:${g.id}` })
+      .catch((err) => console.error('Push failed:', err.message));
+  }
+
   /** Validate and apply a move for the given user. Returns the updated serialized game. */
   function applyMove(user, g, move) {
     if (g.status !== 'active') throw new HttpError(409, 'Game is not active');
@@ -323,7 +331,13 @@ export function createServer({ dbFile = path.join(ROOT, 'data', 'chessclub.db'),
     const over = gameOverInfo(chess);
     if (over) Object.assign(fields, { status: 'finished', result: over.result, termination: over.termination });
     updateGameWithClock(g, fields, { moved: true });
-    return notify(g.id);
+    const state = notify(g.id);
+    if (g.mode === 'online') {
+      const next = turn === 'w' ? g.black_id : g.white_id;
+      if (over) pushGame(next, g, 'Game over', `${user.username} played ${san} — ${over.termination}`);
+      else pushGame(next, g, 'Your move', `${user.username} played ${san}`);
+    }
+    return state;
   }
 
   // ---------- accounts ----------
@@ -332,7 +346,8 @@ export function createServer({ dbFile = path.join(ROOT, 'data', 'chessclub.db'),
   registerPublicAccountRoutes(ctx);
 
   app.use('/api', auth.requireUser);
-  Object.assign(ctx, { notify, makeInviteCode, ratings, serializeGame, canView, onGameFinished });
+  Object.assign(ctx, { notify, makeInviteCode, ratings, serializeGame, canView, onGameFinished, pushGame });
+  push.registerRoutes(ctx);
   registerProfileRoutes(ctx);
   registerTournamentRoutes(ctx);
 
@@ -448,6 +463,12 @@ export function createServer({ dbFile = path.join(ROOT, 'data', 'chessclub.db'),
         tc ? JSON.stringify(tc) : null, tc?.initial ?? null, tc?.initial ?? null, null,
       );
       const state = notify(Number(lastInsertRowid));
+      if (invitedId) {
+        push.notifyUser(invitedId, {
+          title: 'New challenge', body: `${me.username} challenged you${tc ? ` (${tc.initial / 60000}+${tc.increment / 1000})` : ''}`,
+          url: `/#/club/${club.id}`, tag: `challenge-${state.id}`,
+        }, { unlessWatching: `club:${club.id}` }).catch(() => {});
+      }
       return res.status(201).json({ game: state });
     }
 
@@ -527,7 +548,9 @@ export function createServer({ dbFile = path.join(ROOT, 'data', 'chessclub.db'),
     const tc = getTimeControl(g);
     if (tc) updateGame(g.id, { white_ms: tc.initial, black_ms: tc.initial, turn_started_at: null });
     if (changed.changes === 0) throw new HttpError(409, 'This challenge is no longer open');
-    res.json({ game: notify(g.id) });
+    const state = notify(g.id);
+    pushGame(g.created_by, g, 'Challenge accepted', `${me.username} accepted — ${creatorWhite ? 'you have White, your move' : 'you have Black'}`);
+    res.json({ game: state });
   });
 
   app.post('/api/games/:id/cancel', (req, res) => {
@@ -594,6 +617,7 @@ export function createServer({ dbFile = path.join(ROOT, 'data', 'chessclub.db'),
         updateGameWithClock(g, { status: 'finished', result: '1/2-1/2', termination: 'draw agreed', draw_offer_by: null });
       } else {
         updateGame(g.id, { draw_offer_by: me.id });
+        pushGame(me.id === g.white_id ? g.black_id : g.white_id, g, 'Draw offered', `${me.username} offers a draw`);
       }
     } else if (action === 'accept') {
       if (!g.draw_offer_by || g.draw_offer_by === me.id) throw new HttpError(409, 'There is no draw offer to accept');
@@ -730,5 +754,5 @@ export function createServer({ dbFile = path.join(ROOT, 'data', 'chessclub.db'),
   maintenance.start();
   server.on('close', () => maintenance.stop());
 
-  return { app, server, io, db, maintenance };
+  return { app, server, io, db, maintenance, push };
 }

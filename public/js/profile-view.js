@@ -2,7 +2,7 @@
 import { api } from './api.js';
 import { el, clear } from './dom.js';
 import { gameCard } from './game-card.js';
-import { changePasswordForm } from './account-view.js';
+import { changePasswordForm, notificationsCard } from './account-view.js';
 import { START_RATING } from './rating-constants.js';
 
 /** Small line chart of a rating over time (starts from the initial rating). */
@@ -60,5 +60,6 @@ export async function profileView(main, id) {
           gameCard(g),
           g.accuracy !== null ? el('div', { class: 'muted small accuracy-tag' }, `Accuracy ${g.accuracy}%`) : null)))
         : el('p', { class: 'muted' }, 'No finished games yet.')),
+    user.isMe ? notificationsCard() : null,
     user.isMe ? el('section', { class: 'card narrow-card' }, el('h2', {}, 'Change password'), changePasswordForm()) : null));
 }
