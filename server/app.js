@@ -9,6 +9,7 @@ import { createAuth } from './auth.js';
 import { registerPublicAccountRoutes, registerAccountRoutes } from './account.js';
 import { createMaintenance } from './maintenance.js';
 import { registerClubAdminRoutes } from './clubadmin.js';
+import { createRatings } from './ratings.js';
 import { START_FEN, replay, gameOverInfo, tryMove, isValidFen } from './chesslogic.js';
 import {
   TIMED_MODES, parseTimeControl, clampMs, getTimeControl, remainingTime, clockFields, timeoutResult,
@@ -110,6 +111,18 @@ export function createServer({ dbFile = path.join(ROOT, 'data', 'chessclub.db'),
     activeTimedGames: db.prepare("SELECT * FROM games WHERE status = 'active' AND turn_started_at IS NOT NULL"),
   };
 
+  const ratings = createRatings(db);
+
+  /** Rate a finished online game once (both players moved, still members, not a casual game). */
+  function applyRatingIfDue(g) {
+    if (g.mode !== 'online' || g.status !== 'finished' || !RESULTS.has(g.result)) return;
+    const meta = JSON.parse(g.meta);
+    if (meta.rated === false || meta.ratings || JSON.parse(g.moves).length < 2) return;
+    meta.ratings = ratings.rateResult({ clubId: g.club_id, whiteId: g.white_id, blackId: g.black_id, result: g.result, gameId: g.id })
+      || { skipped: true };
+    db.prepare('UPDATE games SET meta = ? WHERE id = ?').run(JSON.stringify(meta), g.id);
+  }
+
   function updateGame(id, fields) {
     const keys = Object.keys(fields);
     const sql = `UPDATE games SET ${keys.map((k) => `${k} = ?`).join(', ')}, updated_at = ? WHERE id = ?`;
@@ -129,8 +142,8 @@ export function createServer({ dbFile = path.join(ROOT, 'data', 'chessclub.db'),
       creatorColor: g.creator_color,
       invitedId: g.invited_id,
       invitedName: g.invited_id ? q.userName.get(g.invited_id)?.username : null,
-      white: { id: g.white_id, name: g.white_name },
-      black: { id: g.black_id, name: g.black_name },
+      white: { id: g.white_id, name: g.white_name, rating: g.mode === 'online' && g.white_id ? ratings.ratingOf(g.club_id, g.white_id)?.rating ?? null : null },
+      black: { id: g.black_id, name: g.black_name, rating: g.mode === 'online' && g.black_id ? ratings.ratingOf(g.club_id, g.black_id)?.rating ?? null : null },
       startFen: g.start_fen,
       fen: g.fen,
       turn: g.fen.split(' ')[1],
@@ -265,8 +278,12 @@ export function createServer({ dbFile = path.join(ROOT, 'data', 'chessclub.db'),
   }
 
   function notify(gameId) {
-    const g = q.game.get(gameId);
+    let g = q.game.get(gameId);
     if (!g) return;
+    if (g.status === 'finished') {
+      applyRatingIfDue(g);
+      g = q.game.get(gameId);
+    }
     scheduleFlag(g);
     const state = serializeGame(g);
     io.to(`game:${g.id}`).emit('game', state);
@@ -307,7 +324,12 @@ export function createServer({ dbFile = path.join(ROOT, 'data', 'chessclub.db'),
   registerPublicAccountRoutes(ctx);
 
   app.use('/api', auth.requireUser);
-  Object.assign(ctx, { notify, makeInviteCode });
+  Object.assign(ctx, { notify, makeInviteCode, ratings });
+
+  app.get('/api/clubs/:id/leaderboard', (req, res) => {
+    const { club } = requireMember(req);
+    res.json({ leaderboard: ratings.leaderboard(club.id) });
+  });
   registerAccountRoutes(ctx);
   registerClubAdminRoutes(ctx);
 
@@ -412,7 +434,7 @@ export function createServer({ dbFile = path.join(ROOT, 'data', 'chessclub.db'),
         club.id, 'online', visibility, 'waiting', me.id,
         color === 'white' ? me.id : null, color === 'black' ? me.id : null,
         color === 'white' ? me.username : null, color === 'black' ? me.username : null,
-        color, invitedId, START_FEN, START_FEN, '[]', '*', null, JSON.stringify(evalBarMeta(body)), now, now,
+        color, invitedId, START_FEN, START_FEN, '[]', '*', null, JSON.stringify({ ...evalBarMeta(body), rated: body.rated !== false }), now, now,
         tc ? JSON.stringify(tc) : null, tc?.initial ?? null, tc?.initial ?? null, null,
       );
       const state = notify(Number(lastInsertRowid));

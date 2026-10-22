@@ -69,6 +69,20 @@ export function openDb(file) {
     );
     CREATE INDEX IF NOT EXISTS games_club_status ON games(club_id, status);
 
+    -- Every rated result, per player (two rows per game or tournament result).
+    CREATE TABLE IF NOT EXISTS rating_history (
+      club_id INTEGER NOT NULL REFERENCES clubs(id) ON DELETE CASCADE,
+      user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      game_id INTEGER,
+      pairing_id INTEGER,
+      opponent_id INTEGER,
+      result REAL NOT NULL,
+      rating INTEGER NOT NULL,
+      delta INTEGER NOT NULL,
+      at INTEGER NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS rating_history_player ON rating_history(club_id, user_id);
+
     -- One-time password reset links created by a club owner for a member (token stored hashed).
     CREATE TABLE IF NOT EXISTS password_resets (
       token_hash TEXT PRIMARY KEY,
@@ -85,5 +99,8 @@ export function openDb(file) {
   for (const [name, type] of Object.entries(added)) {
     if (!gameColumns.has(name)) db.exec(`ALTER TABLE games ADD COLUMN ${name} ${type}`);
   }
+  const memberColumns = new Set(db.prepare('PRAGMA table_info(memberships)').all().map((c) => c.name));
+  if (!memberColumns.has('rating')) db.exec('ALTER TABLE memberships ADD COLUMN rating INTEGER NOT NULL DEFAULT 1200');
+  if (!memberColumns.has('rated_games')) db.exec('ALTER TABLE memberships ADD COLUMN rated_games INTEGER NOT NULL DEFAULT 0');
   return db;
 }

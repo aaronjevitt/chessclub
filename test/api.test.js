@@ -339,7 +339,7 @@ test('eval bar move limit is stored and validated', async () => {
   const a = await registered('evalfade');
   const club = (await a.post('/api/clubs', { name: 'Fade' })).body.club;
   const g = (await a.post(`/api/clubs/${club.id}/games`, { mode: 'online', evalBar: true, evalBarMoves: 10 })).body.game;
-  assert.deepEqual(g.meta, { evalBar: true, evalBarMoves: 10 });
+  assert.deepEqual(g.meta, { evalBar: true, evalBarMoves: 10, rated: true });
   const bad = (await a.post(`/api/clubs/${club.id}/games`, { mode: 'computer', evalBar: true, evalBarMoves: 999 })).body.game;
   assert.equal(bad.meta.evalBar, true);
   assert.equal(bad.meta.evalBarMoves, undefined);
@@ -395,4 +395,39 @@ test('club owner tools: edit, privacy, new invite code, remove member', async ()
   assert.equal((await del(owner, member.user.id)).status, 200);
   assert.equal((await member.get(`/api/clubs/${club.id}/games`)).status, 403);
   assert.equal((await owner.get(`/api/games/${challenge.id}`)).body.game.status, 'aborted');
+});
+
+test('rated games update club ratings once; casual games do not; leaderboard', async () => {
+  const a = await registered('ratera');
+  const b = await registered('raterb');
+  const club = (await a.post('/api/clubs', { name: 'Rated Club' })).body.club;
+  await b.post(`/api/clubs/${club.id}/join`);
+  const play = async (opts, moves, finish) => {
+    const g = (await a.post(`/api/clubs/${club.id}/games`, { mode: 'online', color: 'white', opponentId: b.user.id, ...opts })).body.game;
+    await b.post(`/api/games/${g.id}/accept`);
+    for (const [i, san] of moves.entries()) await (i % 2 ? b : a).post(`/api/games/${g.id}/move`, { san });
+    if (finish) await finish(g);
+    return (await a.get(`/api/games/${g.id}`)).body.game;
+  };
+  const fools = await play({}, ['f3', 'e5', 'g4', 'Qh4#']);
+  assert.deepEqual(fools.meta.ratings, { w: { before: 1200, after: 1180, delta: -20 }, b: { before: 1200, after: 1220, delta: 20 } });
+  assert.equal(fools.white.rating, 1180);
+
+  const casual = await play({ rated: false }, ['e4', 'e5'], (g) => a.post(`/api/games/${g.id}/resign`));
+  assert.equal(casual.meta.ratings, undefined);
+
+  // Resignation before both sides moved is not rated.
+  const early = await play({}, ['e4'], (g) => a.post(`/api/games/${g.id}/resign`));
+  assert.equal(early.meta.ratings, undefined);
+
+  const drawn = await play({}, ['d4', 'd5'], async (g) => {
+    await a.post(`/api/games/${g.id}/draw`, { action: 'offer' });
+    await b.post(`/api/games/${g.id}/draw`, { action: 'accept' });
+  });
+  assert.ok(drawn.meta.ratings.w.delta > 0, 'lower-rated White gains from a draw');
+
+  const board = (await a.get(`/api/clubs/${club.id}/leaderboard`)).body.leaderboard;
+  assert.deepEqual(board.map((r) => [r.username, r.games, r.wins, r.draws, r.losses]),
+    [[b.user.username, 2, 1, 1, 0], [a.user.username, 2, 0, 1, 1]]);
+  assert.ok(board[0].provisional);
 });

@@ -4,6 +4,7 @@ import { el, clear, toast, timeAgo } from './dom.js';
 import { field, formData, submitting } from './ui.js';
 import { resetView, changePasswordForm } from './account-view.js';
 import { clubSettingsCard, memberAdminActions } from './club-admin-view.js';
+import { leaderboardTable } from './leaderboard-view.js';
 import { renderMiniBoard } from './board.js';
 import { mountGameView, MODE_LABEL, resultText } from './game-view.js';
 import { listLocalGames, saveLocalGame, newLocalId } from './local-games.js';
@@ -223,7 +224,7 @@ function challengeRow(g, refresh) {
       el('strong', {}, mine ? (g.invitedName ? `You challenged ${g.invitedName}` : 'Your open challenge') : `${g.creatorName} challenges ${forMe ? 'you' : 'anyone'}`),
       g.visibility === 'private' ? el('span', { class: 'badge private' }, '🔒 Private') : null,
       g.meta?.evalBar ? el('span', { class: 'badge' }, evalBarLabel(g.meta)) : null,
-      el('div', { class: 'muted small' }, `${tcDescription(g.timeControl)} · ${colorText} · ${g.clubName} · ${timeAgo(g.createdAt)}`)),
+      el('div', { class: 'muted small' }, `${g.meta?.rated === false ? 'Casual' : 'Rated'} · ${tcDescription(g.timeControl)} · ${colorText} · ${g.clubName} · ${timeAgo(g.createdAt)}`)),
     el('div', { class: 'row' },
       mine ? el('button', { type: 'button', class: 'btn small', onclick: act('cancel') }, 'Cancel') : null,
       !mine ? el('button', { type: 'button', class: 'btn primary small', onclick: act('accept') }, 'Accept') : null,
@@ -231,6 +232,7 @@ function challengeRow(g, refresh) {
 }
 
 // ---------- club ----------
+
 
 async function clubView(clubId) {
   const socket = getSocket();
@@ -264,6 +266,7 @@ async function clubView(clubId) {
   }
 
   const liveSection = el('div');
+  const leaderboardSection = el('div');
   const challengeSection = el('div');
   const finishedSection = el('div');
   const membersSection = el('div');
@@ -280,6 +283,8 @@ async function clubView(clubId) {
       el('option', { value: 'club' }, 'Club — members can watch live'),
       el('option', { value: 'private' }, 'Private — only the two players'))),
     field('Time control', challengeTc.el),
+    el('label', { class: 'check' }, el('input', { type: 'checkbox', name: 'rated', checked: true }), ' Rated ',
+      el('span', { class: 'muted small' }, '(counts towards club ratings)')),
     evalBarField('(visible to both players)'),
     el('button', { type: 'submit', class: 'btn primary' }, 'Create challenge'));
   challengeForm.addEventListener('submit', (e) => {
@@ -294,6 +299,7 @@ async function clubView(clubId) {
           visibility: d.visibility,
           opponentId: d.opponentId ? Number(d.opponentId) : null,
           ...evalBarSettings(d),
+          rated: d.rated === 'on',
           timeControl: challengeTc.read(),
         },
       });
@@ -325,6 +331,17 @@ async function clubView(clubId) {
       data.finished.length ? el('details', {},
         el('summary', {}, `Recently finished (${data.finished.length})`),
         el('div', { class: 'game-grid' }, data.finished.map((g) => gameCard(g)))) : null);
+  }
+
+  async function loadLeaderboard() {
+    let board;
+    try {
+      ({ leaderboard: board } = await api(`/clubs/${club.id}/leaderboard`));
+    } catch {
+      return;
+    }
+    clear(leaderboardSection, el('h2', {}, 'Leaderboard'),
+      board.length ? leaderboardTable(board, { limit: 10, me: user.id }) : el('p', { class: 'muted small' }, 'No rated games yet. Ratings start at 1200 and change after rated club games.'));
   }
 
   async function loadMembers() {
@@ -386,10 +403,11 @@ async function clubView(clubId) {
       el('div', { class: 'club-main' }, liveSection, challengeSection, finishedSection),
       el('aside', { class: 'club-side' },
         membership.role === 'owner' ? clubSettingsCard(club, () => route()) : null,
+        el('section', { class: 'card' }, leaderboardSection),
         el('section', { class: 'card' }, el('h2', {}, 'Challenge a member'), challengeForm),
         el('section', { class: 'card' }, membersSection)))));
 
-  await Promise.all([loadGames(), loadMembers()]);
+  await Promise.all([loadGames(), loadMembers(), loadLeaderboard()]);
 
   let timer = null;
   const onChanged = ({ clubId: changed }) => {
@@ -398,6 +416,7 @@ async function clubView(clubId) {
     timer = setTimeout(() => {
       loadGames();
       loadMembers();
+      loadLeaderboard();
     }, 150);
   };
   const watch = () => socket.emit('watch:club', club.id);

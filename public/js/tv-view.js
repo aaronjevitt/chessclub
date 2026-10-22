@@ -7,6 +7,7 @@ import { MODE_LABEL, resultText } from './game-view.js';
 import { Evaluator, createEvalBar } from './eval-bar.js';
 import { evalBarVisibility, evalBarLabel } from './eval-settings.js';
 import { formatClock, tcLabel, speedName } from './time-control.js';
+import { leaderboardTable } from './leaderboard-view.js';
 
 // Finished games stay on screen this long so the room can see the result.
 const SHOW_FINISHED_MS = 30 * 1000;
@@ -125,6 +126,7 @@ export async function mountTvView(root, clubId) {
 
   let games = [];
   let challenges = [];
+  let leaderboard = [];
   const finishedAt = new Map();
   const evaluator = new Evaluator({ timeMs: 700 });
   // One bar per game, reused across re-renders so it animates from its previous value.
@@ -192,12 +194,16 @@ export async function mountTvView(root, clubId) {
       : null);
     if (!active.length) {
       grid.style.gridTemplateColumns = '';
-      clear(grid, el('div', { class: 'tv-empty' },
+      const message = el('div', { class: 'tv-empty' },
         el('div', { class: 'tv-empty-icon' }, '♞'),
         el('div', {}, 'No games in progress'),
         el('div', { class: 'muted' }, showChallenges
           ? `Accept a challenge on your phone: ${club.name} → Open challenges.`
-          : 'Live club games will appear here automatically.')));
+          : 'Live club games will appear here automatically.'));
+      // Between games, the club leaderboard keeps the screen interesting.
+      clear(grid, leaderboard.length
+        ? el('div', { class: 'tv-idle' }, message, el('div', { class: 'tv-leaderboard' }, el('h2', {}, 'Club ratings'), leaderboardTable(leaderboard, { limit: 10 })))
+        : message);
       return;
     }
     clear(grid, active.map((g) => tile(g, evalBarFor(g))));
@@ -227,6 +233,11 @@ export async function mountTvView(root, clubId) {
       // Sort by id so boards keep their place on screen as moves come in.
       .sort((a, b) => a.id - b.id);
     challenges = data.waiting.filter((g) => g.visibility === 'club').sort((a, b) => a.createdAt - b.createdAt);
+    try {
+      ({ leaderboard } = await api(`/clubs/${club.id}/leaderboard`));
+    } catch {
+      leaderboard = [];
+    }
     render();
     scheduleExpiry();
   }

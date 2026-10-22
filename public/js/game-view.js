@@ -442,11 +442,26 @@ export function mountGameView(root, { user, kind, id, navigate }) {
     clockEls[color] = state.clock ? el('span', { class: 'clock' }) : null;
     clear(bar,
       el('span', { class: `turn-dot ${toMove ? 'on' : ''} ${color === 'w' ? 'white' : 'black'}` }),
-      el('span', { class: 'player-name' }, name || '—', isYou ? el('span', { class: 'you' }, ' (you)') : null),
+      el('span', { class: 'player-name' }, side.id ? el('a', { href: `#/player/${side.id}`, class: 'player-link' }, name) : name || '—',
+        isYou ? el('span', { class: 'you' }, ' (you)') : null),
+      ratingTag(color),
       el('span', { class: 'captured' }, captured),
       material > 0 ? el('span', { class: 'material' }, `+${material}`) : null,
       clockEls[color],
     );
+  }
+
+  /** "1512" during the game; "1512 +12" once a rated game has been rated. */
+  function ratingTag(color) {
+    if (state.mode !== 'online') return null;
+    const side = color === 'w' ? state.white : state.black;
+    const change = state.meta?.ratings?.[color];
+    if (change && change.delta !== undefined) {
+      const sign = change.delta > 0 ? '+' : '';
+      return el('span', { class: 'rating-tag' }, String(change.after),
+        el('span', { class: `rating-delta ${change.delta > 0 ? 'up' : change.delta < 0 ? 'down' : ''}` }, ` ${sign}${change.delta}`));
+    }
+    return side.rating ? el('span', { class: 'rating-tag' }, String(side.rating)) : null;
   }
 
   function statusText(chess) {
@@ -1186,6 +1201,7 @@ export function mountGameView(root, { user, kind, id, navigate }) {
 
     const badges = [el('span', { class: `badge mode-${state.mode}` }, MODE_LABEL[state.mode])];
     if (state.timeControl) badges.push(el('span', { class: 'badge' }, `⏱ ${tcDescription(state.timeControl)}`));
+    if (state.mode === 'online') badges.push(el('span', { class: 'badge' }, state.meta?.rated === false ? 'Casual' : 'Rated'));
     if (state.mode === 'computer') {
       const elo = gameElo(state.meta);
       badges.push(el('span', { class: 'badge', title: isApproximate(elo) ? 'Approximate rating' : 'Stockfish UCI_Elo' }, `🤖 ${isApproximate(elo) ? '~' : ''}${elo}`));
