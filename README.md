@@ -3,7 +3,7 @@
 A web-based chess club. Members create an account, start or join clubs, and play:
 
 - **Online games against club members** — open challenges or direct challenges, with live updates over WebSockets, draw offers, resignation and abort. Games can be **club-visible** (anyone in the club can spectate) or **private** (only the two players).
-- **Against the computer** — **Stockfish 19** (WebAssembly) runs entirely in your browser. Pick a named bot (Pip 400 … Gia 2800, Stockfish 3190) or any custom Elo from 400 to 3190. Stockfish's own strength limiter covers 1320 and up; below that the bot searches shallowly and sometimes plays a random move, so those ratings are approximate. If a browser can't run Stockfish, a small built-in engine takes over.
+- **Against the computer** — **Stockfish 19** (WebAssembly) runs entirely in your browser. Pick a named bot (Pip 400 … Gia 2800, Stockfish 3190) or any custom Elo from 400 to 3190. Stockfish's own strength limiter covers 1320 and up; below that the bot searches shallowly and sometimes plays a random move, so those ratings are approximate. If a browser can't run Stockfish, a small built-in engine takes over. On your turn, **💡 Hint** highlights which piece to move; press again to see the full move (hints used are counted on the game; not available in games against people).
 - **By yourself** — move both sides, for practice or analysis, from the standard position or any FEN.
 - **Real over-the-board games** — enter the moves of a physical game as it is played and declare the result.
 

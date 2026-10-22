@@ -74,7 +74,7 @@ export class Board {
     this.lastMove = null;
     this.selected = null;
     this.drag = null;
-    this.annotations = { arrows: [], badges: [] };
+    this.annotations = { arrows: [], badges: [], highlights: [] };
 
     this.el = document.createElement('div');
     this.el.className = 'board';
@@ -138,6 +138,11 @@ export class Board {
         c.textContent = sq[0];
         cell.appendChild(c);
       }
+      const highlight = this.annotations.highlights.find((h) => h.square === sq);
+      if (highlight) {
+        cell.classList.add('highlighted');
+        cell.style.setProperty('--highlight', highlight.color);
+      }
       const badge = this.annotations.badges.find((b) => b.square === sq);
       if (badge) {
         const b = document.createElement('span');
@@ -154,10 +159,10 @@ export class Board {
 
   /**
    * Arrows and square badges drawn over the board (used by game review). Takes effect on the next render.
-   * @param arrows [{from, to, color}]; badges [{square, symbol, color, title}]
+   * @param arrows [{from, to, color}]; badges [{square, symbol, color, title}]; highlights [{square, color}]
    */
-  setAnnotations({ arrows = [], badges = [] } = {}) {
-    this.annotations = { arrows, badges };
+  setAnnotations({ arrows = [], badges = [], highlights = [] } = {}) {
+    this.annotations = { arrows, badges, highlights };
   }
 
   _arrowLayer() {

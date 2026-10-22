@@ -73,6 +73,10 @@ export function mountGameView(root, { user, kind, id, navigate }) {
   let review = null;
   let analysing = null;
   let reviewEngine = null;
+  // Hint in a computer game: {key (position), loading} then {key, level 1 (which piece) | 2 (full move), move, san}.
+  let hint = null;
+  let hintEngine = null;
+  let hintsThisSession = 0;
   let engineRequest = 0;
   let evaluator = null;
   let orientationSet = false;
@@ -536,7 +540,14 @@ export function mountGameView(root, { user, kind, id, navigate }) {
       if (active || (kind === 'local' && state.status === 'finished')) {
         items.push(button('↶ Takeback', takeback, { disabled: !state.moves.length }));
       }
-      if (active && state.mode === 'computer') items.push(button('🏳 Resign', resign, { class: 'btn danger' }));
+      if (active && state.mode === 'computer') {
+        if (canHint() || hint?.loading) {
+          const h = activeHint();
+          const label = hint?.loading ? '💡 Thinking…' : h?.level === 1 ? '💡 Show move' : h?.level === 2 ? '💡 Hint shown' : '💡 Hint';
+          items.unshift(button(label, requestHint, { class: 'btn hint-btn', disabled: !!hint?.loading || h?.level === 2 }));
+        }
+        items.push(button('🏳 Resign', resign, { class: 'btn danger' }));
+      }
       if (active && state.mode !== 'computer') {
         items.push(el('div', { class: 'result-buttons' },
           el('span', { class: 'muted' }, 'Result:'),
@@ -592,6 +603,66 @@ export function mountGameView(root, { user, kind, id, navigate }) {
     clear(broadcast,
       el('p', { class: 'muted small' }, '🔒 Private game — only on this device.'),
       el('div', { class: 'row' }, select, button('📡 Broadcast', () => startBroadcast(select.value), { class: 'btn primary' })));
+  }
+
+  // ---------- hints (computer games) ----------
+
+  const PIECE_NAMES = { p: 'pawn', n: 'knight', b: 'bishop', r: 'rook', q: 'queen', k: 'king' };
+  const positionKey = () => `${state.startFen}|${state.moves.join(' ')}`;
+  const hintsUsed = () => (kind === 'local' ? state.hintsUsed || 0 : hintsThisSession);
+
+  function canHint() {
+    if (!state || state.mode !== 'computer' || !isOwner() || state.status !== 'active') return false;
+    if (review || viewPly !== null || thinking || pending) return false;
+    return buildChess(state).turn() !== engineColor();
+  }
+
+  /** First press: which piece to move. Second press: the full move. */
+  async function requestHint() {
+    const key = positionKey();
+    if (hint?.key === key && hint.move) {
+      hint.level = 2;
+      return render();
+    }
+    hint = { key, loading: true };
+    render();
+    hintEngine ||= new Engine();
+    let analysis;
+    try {
+      analysis = await hintEngine.analysePosition({ startFen: state.startFen, moves: state.moves, timeMs: 800 });
+    } catch (err) {
+      hint = null;
+      toast(`Hint failed: ${err.message}`, 'error');
+      return render();
+    }
+    if (destroyed || hint?.key !== key || !analysis.best) return;
+    const chess = buildChess(state);
+    const move = { from: analysis.best.slice(0, 2), to: analysis.best.slice(2, 4), promotion: analysis.best[4] };
+    const piece = chess.get(move.from);
+    const san = chess.move(move).san;
+    hint = { key, level: 1, move, san, piece: PIECE_NAMES[piece.type] };
+    if (kind === 'local') {
+      state.hintsUsed = (state.hintsUsed || 0) + 1;
+      persistLocal();
+    } else {
+      hintsThisSession++;
+    }
+    render();
+  }
+
+  /** The current hint, if it is for the position on the board. */
+  function activeHint() {
+    return hint && !hint.loading && hint.key === positionKey() && viewPly === null && !review ? hint : null;
+  }
+
+  function hintAnnotations() {
+    const h = activeHint();
+    if (!h) return {};
+    const color = 'rgba(59, 130, 246, 0.75)';
+    return {
+      highlights: [{ square: h.move.from, color }],
+      arrows: h.level === 2 ? [{ from: h.move.from, to: h.move.to, color: '#3b82f6' }] : [],
+    };
   }
 
   // ---------- game review ----------
@@ -1067,7 +1138,7 @@ export function mountGameView(root, { user, kind, id, navigate }) {
       board.setAnnotations({ arrows: r.attempt ? [] : solution });
       board.setPosition(shown, r.attempt && h ? { from: h.from, to: h.to } : null);
     } else {
-      board.setAnnotations(review?.explore ? exploreAnnotations() : review ? reviewAnnotations(ply) : {});
+      board.setAnnotations(review?.explore ? exploreAnnotations() : review ? reviewAnnotations(ply) : hintAnnotations());
       const history = chess.history({ verbose: true });
       const last = history[history.length - 1];
       board.setPosition(chess, last ? { from: last.from, to: last.to } : null);
@@ -1085,6 +1156,7 @@ export function mountGameView(root, { user, kind, id, navigate }) {
       badges.push(el('span', { class: 'badge', title: isApproximate(elo) ? 'Approximate rating' : 'Stockfish UCI_Elo' }, `🤖 ${isApproximate(elo) ? '~' : ''}${elo}`));
     }
     if (state.meta?.evalBar) badges.push(el('span', { class: 'badge' }, evalBarLabel(state.meta)));
+    if (state.mode === 'computer' && hintsUsed()) badges.push(el('span', { class: 'badge', title: 'Hints used in this game' }, `💡 ${hintsUsed()}`));
     if (kind === 'local') badges.push(el('span', { class: 'badge private' }, '🔒 Private'));
     else if (state.visibility === 'private') badges.push(el('span', { class: 'badge private' }, '🔒 Private'));
     if (kind === 'server' && state.status === 'active') badges.push(el('span', { class: 'badge live' }, '● Live'));
@@ -1096,7 +1168,11 @@ export function mountGameView(root, { user, kind, id, navigate }) {
     clear(status, statusText(chess));
 
     clear(notice);
-    if (kind === 'server' && state.mode === 'online' && state.status === 'active' && state.drawOfferBy && state.drawOfferBy !== user.id && myOnlineColor()) {
+    const h = activeHint();
+    if (h) {
+      clear(notice, el('div', { class: 'hint-box' }, '💡 ',
+        h.level === 1 ? ['Hint: move your ', el('strong', {}, h.piece), '.'] : ['Best move: ', el('strong', {}, h.san), '.']));
+    } else if (kind === 'server' && state.mode === 'online' && state.status === 'active' && state.drawOfferBy && state.drawOfferBy !== user.id && myOnlineColor()) {
       clear(notice, el('div', { class: 'draw-offer' }, 'Your opponent offers a draw.',
         button('Accept', () => serverAction('draw', { action: 'accept' }), { class: 'btn primary' }),
         button('Decline', () => serverAction('draw', { action: 'decline' }))));
@@ -1175,6 +1251,7 @@ export function mountGameView(root, { user, kind, id, navigate }) {
     evaluator?.destroy();
     bot?.terminate();
     reviewEngine?.terminate();
+    hintEngine?.terminate();
     document.body.classList.remove('has-review-dock');
     if (analysing) analysing.cancelled = true;
     clearInterval(clockTimer);

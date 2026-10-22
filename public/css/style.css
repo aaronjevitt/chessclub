@@ -499,3 +499,9 @@ html, body, a, button, input, select, label, summary, .move-list, .side-panel { 
 .eval-limit { display: flex; align-items: center; gap: .4rem; flex-wrap: wrap; padding-left: 1.6rem; }
 .eval-limit input { width: 4.5rem; padding: .3rem .45rem; }
 .eval-option:not(:has(input[name=evalBar]:checked)) .eval-limit { opacity: .45; }
+
+/* ---------- hints ---------- */
+.sq.highlighted { box-shadow: inset 0 0 0 4px var(--highlight); }
+.sq.highlighted::before { content: ""; position: absolute; inset: 0; background: var(--highlight); opacity: .35; }
+.hint-box { padding: .55rem .7rem; border-radius: 8px; background: rgba(59, 130, 246, .12); border: 1px solid rgba(59, 130, 246, .35); }
+.btn.hint-btn { border-color: rgba(59, 130, 246, .5); }
