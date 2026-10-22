@@ -458,3 +458,73 @@ test('profiles: shared-club privacy, ratings history, records and review accurac
   assert.equal(p.recent[0].colour, 'w');
   assert.equal((await a.get(`/api/users/${a.user.id}`)).body.user.isMe, true);
 });
+
+test('OTB round-robin tournament: reported results, auto-advance, ratings, standings', async () => {
+  const org = await registered('rrorg');
+  const p2 = await registered('rrtwo');
+  const p3 = await registered('rrthree');
+  const outsider = await registered('rrout');
+  const club = (await org.post('/api/clubs', { name: 'RR Club' })).body.club;
+  for (const p of [p2, p3]) await p.post(`/api/clubs/${club.id}/join`);
+  let t = (await org.post(`/api/clubs/${club.id}/tournaments`, { name: 'Autumn RR', format: 'roundrobin', play: 'otb' })).body;
+  const id = t.tournament.id;
+  await p2.post(`/api/tournaments/${id}/join`);
+  assert.equal((await p3.post(`/api/tournaments/${id}/start`)).status, 403);
+  assert.equal((await outsider.get(`/api/tournaments/${id}`)).status, 404);
+  await org.post(`/api/tournaments/${id}/players`, { userId: p3.user.id }); // organiser adds a player
+  t = (await org.post(`/api/tournaments/${id}/start`)).body;
+  assert.equal(t.tournament.rounds, 3);
+  assert.equal(t.tournament.currentRound, 1);
+  const clients = new Map([[org.user.id, org], [p2.user.id, p2], [p3.user.id, p3]]);
+  for (let round = 1; round <= 3; round++) {
+    const games = t.pairings.filter((p) => p.round === round && p.black);
+    assert.equal(games.length, 1);
+    assert.equal(t.pairings.filter((p) => p.round === round && !p.black).length, 1, 'one bye per round');
+    const g = games[0];
+    assert.equal((await outsider.post(`/api/tournaments/${id}/pairings/${g.id}/result`, { result: '1-0' })).status, 404);
+    // White reports a win; a second report by the other player is refused.
+    t = (await clients.get(g.white.id).post(`/api/tournaments/${id}/pairings/${g.id}/result`, { result: '1-0' })).body;
+    if (g.black.id !== org.user.id) { // the organiser may correct results; other players can't overwrite one
+      assert.equal((await clients.get(g.black.id).post(`/api/tournaments/${id}/pairings/${g.id}/result`, { result: '0-1' })).status, 409);
+    }
+    t = (await org.get(`/api/tournaments/${id}`)).body;
+  }
+  assert.equal(t.tournament.status, 'finished');
+  assert.equal(t.standings.reduce((sum, r) => sum + r.points, 0), 6); // 3 games + 3 byes
+  const board = (await org.get(`/api/clubs/${club.id}/leaderboard`)).body.leaderboard;
+  assert.equal(board.reduce((n, r) => n + r.games, 0), 6, 'each OTB game rated for both players');
+  const list = (await p2.get(`/api/clubs/${club.id}/tournaments`)).body.tournaments;
+  assert.equal(list[0].status, 'finished');
+});
+
+test('online Swiss tournament: games created per round, results flow back, winners meet', async () => {
+  const ps = [];
+  for (const n of ['swa', 'swb', 'swc', 'swd']) ps.push(await registered(n));
+  const club = (await ps[0].post('/api/clubs', { name: 'Swiss Club' })).body.club;
+  for (const p of ps.slice(1)) await p.post(`/api/clubs/${club.id}/join`);
+  let t = (await ps[0].post(`/api/clubs/${club.id}/tournaments`, { name: 'Blitz Swiss', format: 'swiss', rounds: 2, play: 'online', timeControl: { initial: 180, increment: 2 } })).body;
+  const id = t.tournament.id;
+  for (const p of ps.slice(1)) await p.post(`/api/tournaments/${id}/join`);
+  t = (await ps[0].post(`/api/tournaments/${id}/start`)).body;
+  const byId = new Map(ps.map((p) => [p.user.id, p]));
+  const playRound = async (round) => {
+    for (const pairing of t.pairings.filter((p) => p.round === round)) {
+      const game = (await ps[0].get(`/api/games/${pairing.gameId}`)).body.game;
+      assert.equal(game.status, 'active');
+      assert.deepEqual(game.timeControl, { initial: 180, increment: 2 });
+      assert.equal((await byId.get(pairing.white.id).post(`/api/games/${game.id}/cancel`)).status, 409, 'cannot abort');
+      const w = byId.get(pairing.white.id);
+      const b = byId.get(pairing.black.id);
+      for (const [i, san] of ['f3', 'e5', 'g4', 'Qh4#'].entries()) await (i % 2 ? b : w).post(`/api/games/${game.id}/move`, { san });
+    }
+    t = (await ps[0].get(`/api/tournaments/${id}`)).body;
+  };
+  await playRound(1);
+  assert.equal(t.tournament.currentRound, 2);
+  const winners = new Set(t.pairings.filter((p) => p.round === 1).map((p) => p.black.id)); // black mated white
+  const top = t.pairings.find((p) => p.round === 2 && p.board === 1);
+  assert.ok(winners.has(top.white.id) && winners.has(top.black.id), 'round-1 winners meet on board 1');
+  await playRound(2);
+  assert.equal(t.tournament.status, 'finished');
+  assert.equal(t.standings[0].points, 2);
+});

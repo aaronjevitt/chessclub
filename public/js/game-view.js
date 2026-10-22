@@ -1202,6 +1202,9 @@ export function mountGameView(root, { user, kind, id, navigate }) {
     const badges = [el('span', { class: `badge mode-${state.mode}` }, MODE_LABEL[state.mode])];
     if (state.timeControl) badges.push(el('span', { class: 'badge' }, `⏱ ${tcDescription(state.timeControl)}`));
     if (state.mode === 'online') badges.push(el('span', { class: 'badge' }, state.meta?.rated === false ? 'Casual' : 'Rated'));
+    if (state.meta?.tournament) {
+      badges.push(el('a', { href: `#/tournament/${state.meta.tournament}`, class: 'badge tournament-badge' }, `🏆 ${state.meta.tournamentName || 'Tournament'} · R${state.meta.round}`));
+    }
     if (state.mode === 'computer') {
       const elo = gameElo(state.meta);
       badges.push(el('span', { class: 'badge', title: isApproximate(elo) ? 'Approximate rating' : 'Stockfish UCI_Elo' }, `🤖 ${isApproximate(elo) ? '~' : ''}${elo}`));

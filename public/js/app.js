@@ -7,6 +7,7 @@ import { clubSettingsCard, memberAdminActions } from './club-admin-view.js';
 import { leaderboardTable } from './leaderboard-view.js';
 import { gameCard } from './game-card.js';
 import { profileView } from './profile-view.js';
+import { clubTournamentsCard, tournamentView } from './tournament-view.js';
 import { renderMiniBoard } from './board.js';
 import { mountGameView, MODE_LABEL, resultText } from './game-view.js';
 import { listLocalGames, saveLocalGame, newLocalId } from './local-games.js';
@@ -249,6 +250,7 @@ async function clubView(clubId) {
 
   const liveSection = el('div');
   const leaderboardSection = el('div');
+  const tournaments = clubTournamentsCard(club, { navigate });
   const challengeSection = el('div');
   const finishedSection = el('div');
   const membersSection = el('div');
@@ -382,14 +384,14 @@ async function clubView(clubId) {
           },
         }, 'Leave club') : null)),
     el('div', { class: 'club-body' },
-      el('div', { class: 'club-main' }, liveSection, challengeSection, finishedSection),
+      el('div', { class: 'club-main' }, liveSection, challengeSection, tournaments.el, finishedSection),
       el('aside', { class: 'club-side' },
         membership.role === 'owner' ? clubSettingsCard(club, () => route()) : null,
         el('section', { class: 'card' }, leaderboardSection),
         el('section', { class: 'card' }, el('h2', {}, 'Challenge a member'), challengeForm),
         el('section', { class: 'card' }, membersSection)))));
 
-  await Promise.all([loadGames(), loadMembers(), loadLeaderboard()]);
+  await Promise.all([loadGames(), loadMembers(), loadLeaderboard(), tournaments.load()]);
 
   let timer = null;
   const onChanged = ({ clubId: changed }) => {
@@ -399,6 +401,7 @@ async function clubView(clubId) {
       loadGames();
       loadMembers();
       loadLeaderboard();
+      tournaments.load();
     }, 150);
   };
   const watch = () => socket.emit('watch:club', club.id);
@@ -589,6 +592,7 @@ async function route() {
     else if (parts[0] === 'new') await newGameView(params);
     else if (parts[0] === 'account') navigate(`#/player/${user.id}`);
     else if (parts[0] === 'player' && parts[1]) await profileView(main, Number(parts[1]));
+    else if (parts[0] === 'tournament' && parts[1]) viewCleanup = await tournamentView(main, Number(parts[1]), { user, navigate });
     else await homeView();
     // If the user navigated away while this view was loading, tear it down right away.
     if (token !== routeToken) viewCleanup?.();

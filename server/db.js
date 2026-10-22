@@ -83,6 +83,45 @@ export function openDb(file) {
     );
     CREATE INDEX IF NOT EXISTS rating_history_player ON rating_history(club_id, user_id);
 
+    -- Club tournaments. format: swiss | roundrobin; play: online (games created automatically) | otb.
+    -- status: registration | running | finished. schedule: round-robin pairings fixed at the start (JSON).
+    CREATE TABLE IF NOT EXISTS tournaments (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      club_id INTEGER NOT NULL REFERENCES clubs(id) ON DELETE CASCADE,
+      name TEXT NOT NULL,
+      format TEXT NOT NULL,
+      play TEXT NOT NULL,
+      rounds INTEGER NOT NULL,
+      time_control TEXT,
+      rated INTEGER NOT NULL DEFAULT 1,
+      status TEXT NOT NULL DEFAULT 'registration',
+      current_round INTEGER NOT NULL DEFAULT 0,
+      schedule TEXT,
+      created_by INTEGER NOT NULL REFERENCES users(id),
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL
+    );
+    CREATE TABLE IF NOT EXISTS tournament_players (
+      tournament_id INTEGER NOT NULL REFERENCES tournaments(id) ON DELETE CASCADE,
+      user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      joined_at INTEGER NOT NULL,
+      withdrawn INTEGER NOT NULL DEFAULT 0,
+      PRIMARY KEY (tournament_id, user_id)
+    );
+    -- black_id NULL = bye. result: 1-0 | 0-1 | 1/2-1/2 | NULL while unplayed.
+    CREATE TABLE IF NOT EXISTS tournament_pairings (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      tournament_id INTEGER NOT NULL REFERENCES tournaments(id) ON DELETE CASCADE,
+      round INTEGER NOT NULL,
+      board INTEGER NOT NULL,
+      white_id INTEGER NOT NULL REFERENCES users(id),
+      black_id INTEGER REFERENCES users(id),
+      result TEXT,
+      game_id INTEGER,
+      reported_by INTEGER,
+      rated INTEGER NOT NULL DEFAULT 0
+    );
+
     -- One-time password reset links created by a club owner for a member (token stored hashed).
     CREATE TABLE IF NOT EXISTS password_resets (
       token_hash TEXT PRIMARY KEY,

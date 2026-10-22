@@ -565,3 +565,43 @@ a.nav-user { color: var(--muted) !important; }
 .accuracy-tag { padding-left: .3rem; }
 .narrow-card { max-width: 480px; }
 .member-name { font-weight: 700; color: var(--text); }
+
+/* ---------- tournaments ---------- */
+.tournament { display: flex; flex-direction: column; gap: 1rem; }
+.tournament-header { display: flex; justify-content: space-between; align-items: center; gap: 1rem; flex-wrap: wrap; }
+.tournament-header h1 { margin: .2rem 0; }
+.tournament-body { display: grid; grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr); gap: 1rem; align-items: start; }
+.badge.t-running { color: var(--live); border-color: color-mix(in srgb, var(--live) 40%, transparent); }
+.badge.t-registration { color: var(--accent); }
+.round-tabs { display: flex; gap: .3rem; flex-wrap: wrap; margin-bottom: .8rem; }
+table.pairings, table.standings { width: 100%; border-collapse: collapse; font-size: .92rem; }
+table.pairings th, table.standings th { text-align: left; font-size: .75rem; color: var(--muted); font-weight: 700; padding: .3rem .4rem; border-bottom: 1px solid var(--border); }
+table.pairings td, table.standings td { padding: .45rem .4rem; border-bottom: 1px solid var(--border); vertical-align: middle; }
+table.pairings tr.mine, table.standings tr.mine { background: var(--accent-soft); }
+table.standings tr.withdrawn { opacity: .6; }
+.center { text-align: center; }
+.strong { font-weight: 800; }
+.result-cell { font-weight: 800; white-space: nowrap; }
+.result-pick { display: inline-flex; gap: .2rem; margin-left: .3rem; }
+.my-game { display: flex; justify-content: space-between; align-items: center; gap: .8rem; flex-wrap: wrap; border-color: var(--accent); }
+.organiser { display: flex; flex-direction: column; gap: .6rem; border-style: dashed; }
+.player-list { margin: 0; padding-left: 1.4rem; display: flex; flex-direction: column; gap: .3rem; }
+.create-details > summary { font-size: .9rem; color: var(--accent); }
+.create-tournament .row > .field { flex: 1; }
+.tournament-item .badge { margin-left: 0; }
+@media (max-width: 900px) {
+  .tournament-body { grid-template-columns: 1fr; }
+  table.pairings td:last-child { white-space: normal; }
+}
+
+/* projector side panel */
+.tv-body { flex: 1; min-height: 0; display: flex; }
+.tv-body .tv-grid { flex: 1; }
+.tv-side { flex: none; width: clamp(280px, 26vw, 520px); border-left: 1px solid var(--border); background: var(--surface); padding: 1.2rem; overflow: hidden; font-size: clamp(.9rem, 1.5vh, 1.3rem); }
+.tv-side[hidden] { display: none; }
+.tv-t-title { font-size: 1.4em; font-weight: 800; }
+.tv-t-sub { margin: 1em 0 .4em; font-weight: 800; text-transform: uppercase; letter-spacing: .06em; font-size: .75em; color: var(--muted); }
+.tv-t-pairings { width: 100%; border-collapse: collapse; margin-top: .8em; }
+.tv-t-pairings td { padding: .35em .3em; border-bottom: 1px solid var(--border); }
+.tv-side table.standings { font-size: 1em; }
+.tournament-badge { color: var(--accent); }

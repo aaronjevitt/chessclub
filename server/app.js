@@ -11,6 +11,7 @@ import { createMaintenance } from './maintenance.js';
 import { registerClubAdminRoutes } from './clubadmin.js';
 import { createRatings } from './ratings.js';
 import { registerProfileRoutes } from './profiles.js';
+import { registerTournamentRoutes } from './tournaments.js';
 import { summarizeReview } from './review-summary.js';
 import { START_FEN, replay, gameOverInfo, tryMove, isValidFen } from './chesslogic.js';
 import {
@@ -114,6 +115,10 @@ export function createServer({ dbFile = path.join(ROOT, 'data', 'chessclub.db'),
   };
 
   const ratings = createRatings(db);
+  // Features that react to a game finishing (tournaments) register here; called on every notify of a
+  // finished game, so hooks must be idempotent.
+  const gameFinishedHooks = [];
+  const onGameFinished = (fn) => gameFinishedHooks.push(fn);
 
   /** Rate a finished online game once (both players moved, still members, not a casual game). */
   function applyRatingIfDue(g) {
@@ -285,6 +290,7 @@ export function createServer({ dbFile = path.join(ROOT, 'data', 'chessclub.db'),
     if (g.status === 'finished') {
       applyRatingIfDue(g);
       g = q.game.get(gameId);
+      for (const hook of gameFinishedHooks) hook(g);
     }
     scheduleFlag(g);
     const state = serializeGame(g);
@@ -326,8 +332,9 @@ export function createServer({ dbFile = path.join(ROOT, 'data', 'chessclub.db'),
   registerPublicAccountRoutes(ctx);
 
   app.use('/api', auth.requireUser);
-  Object.assign(ctx, { notify, makeInviteCode, ratings, serializeGame, canView });
+  Object.assign(ctx, { notify, makeInviteCode, ratings, serializeGame, canView, onGameFinished });
   registerProfileRoutes(ctx);
+  registerTournamentRoutes(ctx);
 
   app.get('/api/clubs/:id/leaderboard', (req, res) => {
     const { club } = requireMember(req);
@@ -534,6 +541,8 @@ export function createServer({ dbFile = path.join(ROOT, 'data', 'chessclub.db'),
       // can be resumed under the same id, so spectators already watching pick it up again.
       if (g.created_by !== me.id) throw new HttpError(403, 'Only the broadcaster can stop this broadcast');
       updateGameWithClock(g, { status: 'paused', draw_offer_by: null });
+    } else if (g.status === 'active' && g.mode === 'online' && JSON.parse(g.meta).tournament) {
+      throw new HttpError(409, "Tournament games can't be aborted — ask the organiser");
     } else if (g.status === 'active' && g.mode === 'online' && JSON.parse(g.moves).length < 2) {
       if (g.white_id !== me.id && g.black_id !== me.id) throw new HttpError(403, 'Not your game');
       updateGameWithClock(g, { status: 'aborted', termination: 'aborted' });

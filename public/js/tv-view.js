@@ -8,6 +8,7 @@ import { Evaluator, createEvalBar } from './eval-bar.js';
 import { evalBarVisibility, evalBarLabel } from './eval-settings.js';
 import { formatClock, tcLabel, speedName } from './time-control.js';
 import { leaderboardTable } from './leaderboard-view.js';
+import { tournamentPanel } from './tournament-view.js';
 
 // Finished games stay on screen this long so the room can see the result.
 const SHOW_FINISHED_MS = 30 * 1000;
@@ -110,6 +111,8 @@ export async function mountTvView(root, clubId) {
   const grid = el('div', { class: 'tv-grid' });
   const finishedStrip = el('div', { class: 'tv-finished', hidden: true });
   const challengeStrip = el('div', { class: 'tv-challenges', hidden: true });
+  // A running tournament gets a side panel with the current round and standings.
+  const side = el('div', { class: 'tv-side', hidden: true });
   const fullscreenBtn = el('button', {
     type: 'button',
     class: 'btn ghost small',
@@ -119,7 +122,7 @@ export async function mountTvView(root, clubId) {
     el('header', { class: 'tv-header' },
       el('div', { class: 'tv-title' }, el('span', { class: 'logo-mark' }, '♞'), club.name, liveCount),
       el('div', { class: 'row' }, clock, fullscreenBtn, el('a', { href: `#/club/${club.id}`, class: 'btn ghost small' }, 'Exit'))),
-    grid,
+    el('div', { class: 'tv-body' }, grid, side),
     finishedStrip,
     challengeStrip));
   document.body.classList.add('tv-mode');
@@ -238,6 +241,15 @@ export async function mountTvView(root, clubId) {
     } catch {
       leaderboard = [];
     }
+    try {
+      const { tournaments } = await api(`/clubs/${club.id}/tournaments`);
+      const running = tournaments.find((t) => t.status === 'running');
+      const detail = running ? await api(`/tournaments/${running.id}`) : null;
+      side.hidden = !detail;
+      clear(side, detail ? tournamentPanel(detail) : null);
+    } catch {
+      side.hidden = true;
+    }
     render();
     scheduleExpiry();
   }
@@ -260,6 +272,7 @@ export async function mountTvView(root, clubId) {
   };
   const watch = () => socket.emit('watch:club', club.id);
   socket.on('club:changed', onChanged);
+  socket.on('tournament:changed', onChanged);
   socket.on('connect', watch);
   if (socket.connected) watch();
   window.addEventListener('resize', layout);
@@ -279,6 +292,7 @@ export async function mountTvView(root, clubId) {
     document.body.classList.remove('tv-mode');
     socket.emit('unwatch:club', club.id);
     socket.off('club:changed', onChanged);
+    socket.off('tournament:changed', onChanged);
     socket.off('connect', watch);
     if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
   };
