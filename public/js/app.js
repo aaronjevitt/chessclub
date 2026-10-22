@@ -1,3 +1,4 @@
+import './no-double-tap-zoom.js';
 import { api, getSocket, resetSocket } from './api.js';
 import { el, clear, toast, timeAgo } from './dom.js';
 import { renderMiniBoard } from './board.js';

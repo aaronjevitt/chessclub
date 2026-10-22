@@ -44,7 +44,10 @@ export function createServer({ dbFile = path.join(ROOT, 'data', 'chessclub.db') 
   app.disable('x-powered-by');
   app.use(express.json({ limit: '200kb' }));
   app.use(auth.attachUser);
-  app.use(express.static(path.join(ROOT, 'public')));
+  // Browsers must check for new app files on every load (cheap 304s via ETag), so updates reach phones at once.
+  app.use(express.static(path.join(ROOT, 'public'), {
+    setHeaders: (res) => res.setHeader('Cache-Control', 'no-cache'),
+  }));
   app.get('/vendor/chess.js', (_req, res) => {
     res.sendFile(path.join(ROOT, 'node_modules', 'chess.js', 'dist', 'esm', 'chess.js'));
   });
