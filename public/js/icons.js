@@ -15,6 +15,9 @@ const PATHS = {
   close: 'M6 6l12 12 M18 6 6 18',
   more: 'M5 12h.01 M12 12h.01 M19 12h.01',
   back: 'M19 12H5 M11 6l-6 6 6 6',
+  home: 'M3 10.5 12 3l9 7.5 M5 9v12h5v-6h4v6h5V9',
+  play: 'M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18z M12 8v8 M8 12h8',
+  target: 'M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18z M12 16.5a4.5 4.5 0 1 0 0-9 4.5 4.5 0 0 0 0 9z M12 12h.01',
 };
 
 export function icon(name, { size = 18, label = null } = {}) {

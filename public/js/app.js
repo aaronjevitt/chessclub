@@ -34,15 +34,38 @@ function navigate(hash) {
   else location.hash = hash;
 }
 
+// Phones get an app-style tab bar along the bottom instead of the links in the header.
+const tabbar = el('nav', { class: 'tabbar', 'aria-label': 'Main' });
+document.body.appendChild(tabbar);
+
+function markActiveTab() {
+  const section = location.hash.slice(2).split(/[/?]/)[0] || 'home';
+  for (const a of tabbar.querySelectorAll('a')) {
+    const tab = a.dataset.tab;
+    a.classList.toggle('active', tab === section || (tab === 'home' && ['club', 'game', 'local', 'tournament'].includes(section))
+      || (tab === 'player' && section === 'account'));
+  }
+}
+
 function renderNav() {
   if (!user) {
     clear(nav, el('a', { href: '#/login' }, 'Log in'), el('a', { href: '#/register', class: 'btn primary small' }, 'Sign up'));
+    clear(tabbar);
+    document.body.classList.remove('has-tabbar');
     return;
   }
+  const tab = (href, name, iconName, label) => el('a', { href, dataset: { tab: name } }, icon(iconName, { size: 22 }), el('span', {}, label));
+  clear(tabbar,
+    tab('#/', 'home', 'home', 'Home'),
+    tab('#/new', 'new', 'play', 'Play'),
+    tab('#/puzzles', 'puzzles', 'target', 'Puzzles'),
+    tab(`#/player/${user.id}`, 'player', 'user', 'Profile'));
+  document.body.classList.add('has-tabbar');
+  markActiveTab();
   clear(nav,
-    el('a', { href: '#/' }, 'Home'),
-    el('a', { href: '#/new' }, 'New game'),
-    el('a', { href: '#/puzzles' }, 'Puzzles'),
+    el('a', { href: '#/', class: 'nav-link' }, 'Home'),
+    el('a', { href: '#/new', class: 'nav-link' }, 'New game'),
+    el('a', { href: '#/puzzles', class: 'nav-link' }, 'Puzzles'),
     el('button', {
       type: 'button',
       class: 'btn ghost small sound-toggle',
@@ -635,6 +658,7 @@ async function start() {
   }
   renderNav();
   window.addEventListener('hashchange', route);
+  window.addEventListener('hashchange', markActiveTab);
   route();
 }
 

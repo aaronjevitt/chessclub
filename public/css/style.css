@@ -269,7 +269,7 @@ button.move:hover { background: var(--border); }
 
 /* ---------- responsive ---------- */
 @media (max-width: 900px) {
-  .two-col, .club-body, .game-layout { grid-template-columns: 1fr; }
+  .two-col, .club-body, .game-layout { grid-template-columns: minmax(0, 1fr); }
   .side-panel { position: static; }
   .board-col { max-width: 100%; }
 }
@@ -659,3 +659,102 @@ table.standings tr.withdrawn { opacity: .6; }
 .narrow > * + * { margin-top: 1rem; }
 .eval-note { padding-left: 1.6rem; margin-top: -.2rem; }
 .mode-option input { flex-shrink: 0; }
+
+/* ---------- phones ---------- */
+.tabbar { display: none; }
+.table-scroll { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+.tournament-body > * { min-width: 0; }
+
+/* Touch screens: comfortable tap targets. */
+@media (pointer: coarse) {
+  .btn { min-height: 42px; }
+  .btn.small { min-height: 36px; padding-left: .75rem; padding-right: .75rem; }
+  .move { padding: .35rem .5rem; }
+}
+
+@media (max-width: 900px) {
+  /* Game page: status, then a one-line move strip and stepping right under the board; details last. */
+  .side-panel { padding: 1rem; gap: .7rem; }
+  .side-panel > .status { order: 1; }
+  .side-panel > .notice-area { order: 2; }
+  .side-panel > .move-list { order: 3; }
+  .side-panel > .nav-buttons { order: 4; }
+  .side-panel > .review-panel { order: 5; }
+  .side-panel > .controls { order: 6; }
+  .side-panel > .broadcast-panel { order: 7; }
+  .side-panel > .game-meta { order: 8; border-top: 1px solid var(--border); padding-top: .6rem; }
+  .side-panel .move-list {
+    display: flex; align-items: center; flex-wrap: nowrap; overflow-x: auto; overflow-y: hidden;
+    min-height: 0; max-height: none; padding: .3rem; scrollbar-width: none;
+  }
+  .side-panel .move-list::-webkit-scrollbar { display: none; }
+  .side-panel .move-row { display: flex; align-items: center; flex: none; }
+  .side-panel .move-num { padding: 0 .1rem 0 .4rem; }
+  .side-panel .move { white-space: nowrap; }
+  .notice-area:empty { display: none; }
+  .controls .btn { flex: 1 1 auto; }
+  .game-tools .btn { flex: 0 1 auto; }
+
+  /* Club page: New challenge first, then games, then members and settings. */
+  .club-body { display: flex; flex-direction: column; align-items: stretch; }
+  .game-layout > *, .side-panel > * { min-width: 0; }
+  .club-side { display: contents; }
+  .club-side > .challenge-card { order: -1; }
+  .club-main { order: 0; min-width: 0; }
+  .club-side > section, .club-side > details.club-settings { order: 1; }
+}
+
+@media (max-width: 560px) {
+  .card { padding: 1rem; }
+  h1 { font-size: 1.5rem; }
+
+  /* Bottom tab bar replaces the header links. */
+  body.has-tabbar #nav .nav-link, body.has-tabbar .nav-user { display: none; }
+  body.has-tabbar .tabbar {
+    display: grid; grid-template-columns: repeat(4, 1fr); position: fixed; left: 0; right: 0; bottom: 0; z-index: 25;
+    background: var(--surface); border-top: 1px solid var(--border);
+    padding-bottom: env(safe-area-inset-bottom);
+  }
+  .tabbar a {
+    display: flex; flex-direction: column; align-items: center; gap: 2px; padding: .45rem 0 .4rem;
+    color: var(--muted); font-size: .7rem; font-weight: 600; text-decoration: none;
+  }
+  .tabbar a.active { color: var(--accent); }
+  body.has-tabbar main { padding-bottom: calc(4.5rem + env(safe-area-inset-bottom)); }
+  body.tv-mode .tabbar, body.has-review-dock .tabbar { display: none !important; }
+  .topbar { padding-top: calc(.6rem + env(safe-area-inset-top)); }
+
+  /* Home: the three shortcuts side by side, titles only. */
+  .hero { gap: .8rem; }
+  .hero h1 { margin-bottom: .2rem; }
+  .hero p { margin: 0; }
+  .quick-play { display: grid; grid-template-columns: repeat(3, 1fr); gap: .5rem; }
+  .quick { width: auto; padding: .7rem .5rem; text-align: center; justify-content: center; }
+  .quick strong { font-size: .85rem; line-height: 1.25; }
+  .quick .muted { display: none; }
+
+  /* Profile: stats in one row. */
+  .stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: .6rem; width: 100%; }
+  .stat-value { font-size: 1.3rem; }
+
+  .game-grid { gap: .6rem; }
+  .game-card { padding: .5rem; }
+  .game-card .players { font-size: .9rem; }
+  .live-grid { grid-template-columns: 1fr; }
+  .club-header .row .btn { flex: 1; }
+  .my-game { flex-direction: column; align-items: flex-start; }
+}
+@media (max-width: 560px) {
+  .club-body { gap: 1rem; }
+  .result-pick .btn { min-height: 32px; padding: .15rem .4rem; font-size: .8rem; }
+  table.pairings td, table.pairings th { padding-left: .25rem; padding-right: .25rem; }
+}
+@media (max-width: 900px) {
+  /* Puzzles: the task first, the tallies after. */
+  .puzzle-panel > .puzzle-prompt { order: -3; margin-top: 0; }
+  .puzzle-panel > .retry-feedback { order: -2; }
+  .puzzle-panel > .puzzle-actions { order: -1; margin: 0; }
+}
+@media (max-width: 560px) {
+  .puzzle-panel h1 { display: none; }
+}

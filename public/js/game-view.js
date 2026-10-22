@@ -564,7 +564,14 @@ export function mountGameView(root, { user, kind, id, navigate }) {
     clear(moveList, rows.length ? rows : el('div', { class: 'muted' }, 'No moves yet'));
     // Keep the current move visible by scrolling the move list itself; scrollIntoView would also scroll the page.
     const currentEl = moveList.querySelector('.current');
-    if (currentEl) {
+    if (!currentEl) moveList.scrollLeft = 0;
+    if (currentEl && moveList.scrollWidth > moveList.clientWidth + 1) {
+      // Phones show the moves as one horizontal strip.
+      const left = currentEl.offsetLeft;
+      const right = left + currentEl.offsetWidth;
+      if (left < moveList.scrollLeft) moveList.scrollLeft = left - 24;
+      else if (right > moveList.scrollLeft + moveList.clientWidth) moveList.scrollLeft = right - moveList.clientWidth + 24;
+    } else if (currentEl) {
       const top = currentEl.offsetTop;
       const bottom = top + currentEl.offsetHeight;
       if (top < moveList.scrollTop) moveList.scrollTop = top;

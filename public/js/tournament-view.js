@@ -168,10 +168,10 @@ export async function tournamentView(main, id, { user, navigate }) {
             el('div', { class: 'round-tabs' }, rounds.map((r) => el('button', {
               type: 'button', class: `btn small ${r === shownRound ? 'primary' : 'ghost'}`, onclick: () => { shownRound = r; render(); },
             }, `Round ${r}`))),
-            el('table', { class: 'pairings' },
+            el('div', { class: 'table-scroll' }, el('table', { class: 'pairings' },
               el('thead', {}, el('tr', {}, el('th', {}, '#'), el('th', {}, 'White'), el('th', { class: 'center' }, 'Result'), el('th', {}, 'Black'), el('th'))),
-              el('tbody', {}, data.pairings.filter((p) => p.round === shownRound).map(pairingRow)))),
-          el('section', { class: 'card' }, el('h2', {}, 'Standings'), standingsTable(data.standings, user.id))));
+              el('tbody', {}, data.pairings.filter((p) => p.round === shownRound).map(pairingRow))))),
+          el('section', { class: 'card' }, el('h2', {}, 'Standings'), el('div', { class: 'table-scroll' }, standingsTable(data.standings, user.id)))));
   }
 
   function organiserPanel() {
