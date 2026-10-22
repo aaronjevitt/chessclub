@@ -459,6 +459,34 @@ test('profiles: shared-club privacy, ratings history, records and review accurac
   assert.equal((await a.get(`/api/users/${a.user.id}`)).body.user.isMe, true);
 });
 
+test('puzzles: your own mistakes from reviewed games, with progress', async () => {
+  const a = await registered('puza');
+  const b = await registered('puzb');
+  const club = (await a.post('/api/clubs', { name: 'Puzzle Club' })).body.club;
+  await b.post(`/api/clubs/${club.id}/join`);
+  const g = (await a.post(`/api/clubs/${club.id}/games`, { mode: 'online', color: 'white', opponentId: b.user.id })).body.game;
+  await b.post(`/api/games/${g.id}/accept`);
+  for (const [i, san] of ['e4', 'e5', 'Bc4', 'Nc6', 'Qh5', 'Nf6', 'Qxf7#'].entries()) await (i % 2 ? b : a).post(`/api/games/${g.id}/move`, { san });
+  const pos = (best, cp, mate = null) => ({ best, cp, mate, alt: null, cp2: null, mate2: null });
+  const positions = [pos('e2e4', 30), pos('e7e5', 30), pos('g1f3', 30), pos('b8c6', 0), pos('f1c4', 20), pos('g7g6', -20), pos('h5f7', null, 1), pos(null, 100000, 0)];
+  assert.equal((await b.get('/api/puzzles')).body.stats.total, 0);
+  await a.post(`/api/games/${g.id}/analysis`, { analysis: { engine: 'test', timeMs: 1, positions } });
+
+  const { puzzles, stats } = (await b.get('/api/puzzles')).body;
+  assert.deepEqual(stats, { total: 1, new: 1, solved: 0, failed: 0 });
+  assert.deepEqual([puzzles[0].ply, puzzles[0].played, puzzles[0].bestSan, puzzles[0].label, puzzles[0].opponent], [6, 'Nf6', 'g6', 'blunder', a.user.username]);
+  assert.equal(puzzles[0].fen.split(' ')[1], 'b');
+  assert.equal((await a.get('/api/puzzles')).body.stats.total, 0, "White's moves were fine");
+
+  assert.equal((await a.post('/api/puzzles/attempt', { gameId: g.id, ply: 6, solved: true })).status, 404, "not White's puzzle");
+  assert.equal((await b.post('/api/puzzles/attempt', { gameId: g.id, ply: 5, solved: true })).status, 404);
+  await b.post('/api/puzzles/attempt', { gameId: g.id, ply: 6, solved: false });
+  assert.equal((await b.get('/api/puzzles')).body.puzzles[0].status, 'failed');
+  await b.post('/api/puzzles/attempt', { gameId: g.id, ply: 6, solved: true });
+  const after = (await b.get('/api/puzzles')).body;
+  assert.deepEqual([after.puzzles[0].status, after.puzzles[0].solved, after.puzzles[0].failed], ['solved', 1, 1]);
+});
+
 test('OTB round-robin tournament: reported results, auto-advance, ratings, standings', async () => {
   const org = await registered('rrorg');
   const p2 = await registered('rrtwo');

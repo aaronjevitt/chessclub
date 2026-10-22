@@ -39,7 +39,15 @@ export async function profileView(main, id) {
     el('section', { class: 'card profile-header' },
       el('div', {},
         el('h1', {}, user.username, user.isMe ? el('span', { class: 'muted small' }, ' (you)') : null),
-        el('div', { class: 'muted small' }, `Member since ${new Date(user.joinedAt).toLocaleDateString()}`)),
+        el('div', { class: 'muted small' }, `Member since ${new Date(user.joinedAt).toLocaleDateString()}`),
+        user.isMe ? el('button', {
+          type: 'button', class: 'btn small profile-logout',
+          onclick: async () => {
+            await api('/logout', { method: 'POST' }).catch(() => {});
+            location.hash = '#/login';
+            location.reload();
+          },
+        }, 'Log out') : null),
       el('div', { class: 'stats' },
         record('vs members', p.record.members),
         record('vs computer', p.record.computer),

@@ -8,6 +8,7 @@ import { leaderboardTable } from './leaderboard-view.js';
 import { gameCard } from './game-card.js';
 import { soundEnabled, setSoundEnabled, sounds } from './sounds.js';
 import { profileView } from './profile-view.js';
+import { puzzleView } from './puzzle-view.js';
 import { clubTournamentsCard, tournamentView } from './tournament-view.js';
 import { renderMiniBoard } from './board.js';
 import { mountGameView, MODE_LABEL, resultText } from './game-view.js';
@@ -40,6 +41,7 @@ function renderNav() {
   clear(nav,
     el('a', { href: '#/' }, 'Home'),
     el('a', { href: '#/new' }, 'New game'),
+    el('a', { href: '#/puzzles' }, 'Puzzles'),
     el('button', {
       type: 'button',
       class: 'btn ghost small sound-toggle',
@@ -51,10 +53,10 @@ function renderNav() {
         if (soundEnabled()) sounds.move();
       },
     }, soundEnabled() ? '🔊' : '🔇'),
-    el('a', { href: `#/player/${user.id}`, class: 'nav-user' }, `♟ ${user.username}`),
+    el('a', { href: `#/player/${user.id}`, class: 'nav-user', title: 'Your profile' }, '♟', el('span', { class: 'nav-name' }, ` ${user.username}`)),
     el('button', {
       type: 'button',
-      class: 'btn ghost small',
+      class: 'btn ghost small nav-logout',
       onclick: async () => {
         await api('/logout', { method: 'POST' }).catch(() => {});
         user = null;
@@ -605,6 +607,7 @@ async function route() {
     else if (parts[0] === 'game' && parts[1]) viewCleanup = mountGameView(main, { user, kind: 'server', id: Number(parts[1]), navigate });
     else if (parts[0] === 'local' && parts[1]) viewCleanup = mountGameView(main, { user, kind: 'local', id: parts[1], navigate });
     else if (parts[0] === 'new') await newGameView(params);
+    else if (parts[0] === 'puzzles') viewCleanup = await puzzleView(main);
     else if (parts[0] === 'account') navigate(`#/player/${user.id}`);
     else if (parts[0] === 'player' && parts[1]) await profileView(main, Number(parts[1]));
     else if (parts[0] === 'tournament' && parts[1]) viewCleanup = await tournamentView(main, Number(parts[1]), { user, navigate });

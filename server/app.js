@@ -13,6 +13,7 @@ import { createRatings } from './ratings.js';
 import { registerProfileRoutes } from './profiles.js';
 import { registerTournamentRoutes } from './tournaments.js';
 import { createPush } from './push.js';
+import { registerPuzzleRoutes } from './puzzles.js';
 import { summarizeReview } from './review-summary.js';
 import { START_FEN, replay, gameOverInfo, tryMove, isValidFen } from './chesslogic.js';
 import {
@@ -350,6 +351,7 @@ export function createServer({ dbFile = path.join(ROOT, 'data', 'chessclub.db'),
   push.registerRoutes(ctx);
   registerProfileRoutes(ctx);
   registerTournamentRoutes(ctx);
+  registerPuzzleRoutes(ctx);
 
   app.get('/api/clubs/:id/leaderboard', (req, res) => {
     const { club } = requireMember(req);

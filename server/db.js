@@ -122,6 +122,18 @@ export function openDb(file) {
       rated INTEGER NOT NULL DEFAULT 0
     );
 
+    -- Puzzle progress: one row per (player, puzzle), a puzzle being a mistake in one of their reviewed games.
+    CREATE TABLE IF NOT EXISTS puzzle_progress (
+      user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      game_id INTEGER NOT NULL REFERENCES games(id) ON DELETE CASCADE,
+      ply INTEGER NOT NULL,
+      solved INTEGER NOT NULL DEFAULT 0,
+      failed INTEGER NOT NULL DEFAULT 0,
+      last_result TEXT NOT NULL,
+      last_at INTEGER NOT NULL,
+      PRIMARY KEY (user_id, game_id, ply)
+    );
+
     -- Server settings (e.g. the generated Web Push keys).
     CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT NOT NULL);
     -- Web Push subscriptions, one per device that enabled notifications.

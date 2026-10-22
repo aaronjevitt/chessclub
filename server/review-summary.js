@@ -8,7 +8,7 @@ import { reviewGame } from '../public/js/review.js';
 const ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
 let book = null;
 
-function openingBook() {
+export function openingBook() {
   book ||= JSON.parse(fs.readFileSync(path.join(ROOT, 'public', 'data', 'openings.json'), 'utf8'));
   return book;
 }

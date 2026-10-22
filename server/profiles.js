@@ -1,6 +1,7 @@
 // Player profiles: club ratings and history, records, review accuracy and recent games.
 import { summarizeReview } from './review-summary.js';
 import { PROVISIONAL_GAMES } from './ratings.js';
+import { colourOf } from './colour.js';
 
 export function registerProfileRoutes({ app, db, q, HttpError, ratings, serializeGame, canView }) {
   const user = db.prepare('SELECT id, username, created_at FROM users WHERE id = ?');
@@ -15,14 +16,6 @@ export function registerProfileRoutes({ app, db, q, HttpError, ratings, serializ
       AND g.club_id IN (SELECT club_id FROM memberships WHERE user_id = ?2)
     ORDER BY g.updated_at DESC LIMIT 300`);
   const saveAnalysis = db.prepare('UPDATE games SET analysis = ? WHERE id = ?');
-
-  /** Which colour the player had in a game, or null. */
-  function colourOf(g, userId) {
-    if (g.white_id === userId) return 'w';
-    if (g.black_id === userId) return 'b';
-    if (g.mode === 'computer' && g.created_by === userId) return JSON.parse(g.meta).playerColor === 'black' ? 'b' : 'w';
-    return null;
-  }
 
   /** Stored review summary for a game, computing (and saving) it for older reviews. */
   function reviewSummary(g) {

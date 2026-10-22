@@ -275,7 +275,10 @@ button.move:hover { background: var(--border); }
 @media (max-width: 560px) {
   main { padding: 1rem; }
   .topbar { padding: .6rem 1rem; }
-  .nav-user { display: none; }
+  .nav-name, .nav-logout, .logo-text { display: none; }
+  .nav-user { font-size: 1.1rem; }
+  #nav { gap: .55rem; }
+  #nav a { white-space: nowrap; }
   .quick { width: calc(33% - .5rem); min-width: 92px; }
   .game-grid { grid-template-columns: repeat(2, 1fr); }
 }
@@ -606,3 +609,9 @@ table.standings tr.withdrawn { opacity: .6; }
 .tv-side table.standings { font-size: 1em; }
 .tournament-badge { color: var(--accent); }
 .sound-toggle { font-size: 1rem; padding: .2rem .45rem; }
+
+/* Puzzles */
+.puzzle-panel h1 { margin: 0 0 .25rem; font-size: 1.4rem; }
+.puzzle-prompt { margin: .75rem 0; }
+.puzzle-prompt p { margin: .4rem 0; }
+.puzzle-actions { margin: .75rem 0; }
