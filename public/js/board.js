@@ -80,10 +80,18 @@ export class Board {
    * @param opts.onMove   (from, to, promotion) => void   called for a legal move by the user
    * @param opts.canMove  (color) => boolean               whether the user may move pieces of that color now
    */
-  constructor(container, { onMove, canMove } = {}) {
+  /**
+   * @param opts.canPremove     (color) => boolean   whether the user may queue a move for that color now
+   * @param opts.onPremove      (from, to, promotion) => void
+   * @param opts.onPremoveCancel () => void          the user tapped elsewhere (cancel a queued move)
+   */
+  constructor(container, { onMove, canMove, canPremove, onPremove, onPremoveCancel } = {}) {
     this.container = container;
     this.onMove = onMove || (() => {});
     this.canMove = canMove || (() => true);
+    this.canPremove = canPremove || (() => false);
+    this.onPremove = onPremove || (() => {});
+    this.onPremoveCancel = onPremoveCancel || (() => {});
     this.orientation = 'white';
     this.chess = null;
     this.lastMove = null;
@@ -293,13 +301,40 @@ export class Board {
     return null;
   }
 
+  /** Is this a premove (a piece of the side not to move)? */
+  _isPremove(square) {
+    const piece = this.chess?.get(square);
+    return !!piece && piece.color !== this.chess.turn();
+  }
+
+  /**
+   * The position as if it were the other side's turn, for working out premove targets. It can't know
+   * the opponent's coming move, so a premove is re-checked for legality when it is played.
+   */
+  _premoveChess() {
+    const parts = this.chess.fen().split(' ');
+    parts[1] = parts[1] === 'w' ? 'b' : 'w';
+    parts[3] = '-';
+    try {
+      return new this.chess.constructor(parts.join(' '));
+    } catch {
+      return null;
+    }
+  }
+
+  _movesFrom(square) {
+    const chess = this._isPremove(square) ? this._premoveChess() : this.chess;
+    return chess ? chess.moves({ square, verbose: true }) : [];
+  }
+
   _targets(square) {
-    return [...new Set(this.chess.moves({ square, verbose: true }).map((m) => m.to))];
+    return [...new Set(this._movesFrom(square).map((m) => m.to))];
   }
 
   _movable(square) {
     const piece = this.chess?.get(square);
-    return piece && piece.color === this.chess.turn() && this.canMove(piece.color) && !this.chess.isGameOver();
+    if (!piece || this.chess.isGameOver()) return false;
+    return piece.color === this.chess.turn() ? this.canMove(piece.color) : this.canPremove(piece.color);
   }
 
   _squareAt(x, y) {
@@ -319,6 +354,8 @@ export class Board {
       if (this.selected) {
         this.selected = null;
         this.render();
+      } else {
+        this.onPremoveCancel();
       }
       return;
     }
@@ -380,8 +417,15 @@ export class Board {
   }
 
   _attempt(from, to) {
-    const candidates = this.chess.moves({ square: from, verbose: true }).filter((m) => m.to === to);
+    const candidates = this._movesFrom(from).filter((m) => m.to === to);
     if (!candidates.length) return;
+    if (this._isPremove(from)) {
+      // Premoves promote to a queen; there's no time to ask. Nothing moves yet, so nothing to skip.
+      this.selected = null;
+      this.skipNextAnimation = false;
+      this.onPremove(from, to, candidates.some((m) => m.promotion) ? 'q' : undefined);
+      return;
+    }
     if (candidates.some((m) => m.promotion)) {
       this._askPromotion(to, this.chess.get(from).color).then((promotion) => {
         if (promotion) this._commit(from, to, promotion);

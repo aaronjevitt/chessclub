@@ -605,3 +605,4 @@ table.standings tr.withdrawn { opacity: .6; }
 .tv-t-pairings td { padding: .35em .3em; border-bottom: 1px solid var(--border); }
 .tv-side table.standings { font-size: 1em; }
 .tournament-badge { color: var(--accent); }
+.sound-toggle { font-size: 1rem; padding: .2rem .45rem; }

@@ -9,6 +9,7 @@ import { Evaluator, createEvalBar } from './eval-bar.js';
 import { evalBarVisibility, evalBarLabel } from './eval-settings.js';
 import { formatClock, tcDescription } from './time-control.js';
 import { timeoutResult } from './clock-rules.js';
+import { sounds, soundForMove } from './sounds.js';
 import { reviewGame, whiteWinPercent, labelForLoss, RETRY_LABELS, LABELS } from './review.js';
 import { loadOpeningBook, labelIcon, explainMove, renderSummary, renderGraph } from './review-view.js';
 
@@ -75,6 +76,10 @@ export function mountGameView(root, { user, kind, id, navigate }) {
   let reviewEngine = null;
   // Hint in a computer game: {key (position), loading} then {key, level 1 (which piece) | 2 (full move), move, san}.
   let hint = null;
+  // A move queued during the opponent's turn: {from, to, promotion}.
+  let premove = null;
+  // What the last render showed, to play sounds only for changes that just happened.
+  let heard = null;
   let hintEngine = null;
   let hintsThisSession = 0;
   let engineRequest = 0;
@@ -119,7 +124,18 @@ export function mountGameView(root, { user, kind, id, navigate }) {
       const move = { from, to, promotion };
       if (review?.retry) return retryMove(move);
       if (review) return exploreMove(move);
+      premove = null;
       return makeMove(move);
+    },
+    canPremove: (color) => canPremoveColor(color),
+    onPremove: (from, to, promotion) => {
+      premove = { from, to, promotion };
+      render();
+    },
+    onPremoveCancel: () => {
+      if (!premove) return;
+      premove = null;
+      render();
     },
   });
 
@@ -133,6 +149,38 @@ export function mountGameView(root, { user, kind, id, navigate }) {
     return null;
   };
   const engineColor = () => (state.mode === 'computer' ? (state.meta.playerColor === 'black' ? 'w' : 'b') : null);
+
+  /** You can queue a move for your own colour while waiting for the opponent (or the computer). */
+  function canPremoveColor(color) {
+    if (!state || state.status !== 'active' || viewPly !== null || review) return false;
+    const turn = buildChess(state).turn();
+    if (turn === color) return false;
+    if (state.mode === 'online') return myOnlineColor() === color;
+    if (state.mode === 'computer') return isOwner() && color !== engineColor();
+    return false;
+  }
+
+  /** Play the queued move as soon as it is our turn (dropped if it is no longer legal). */
+  function playPremoveIfReady() {
+    if (!premove || pending || thinking || state.status !== 'active') return;
+    const chess = buildChess(state);
+    if (!canMoveColor(chess.turn())) return;
+    const move = premove;
+    premove = null;
+    const legal = chess.moves({ square: move.from, verbose: true }).find((m) => m.to === move.to && (!m.promotion || m.promotion === (move.promotion || 'q')));
+    if (legal) setTimeout(() => makeMove({ from: move.from, to: move.to, promotion: legal.promotion }), 0);
+    else setTimeout(render, 0);
+  }
+
+  /** Sounds for what just changed: a new move, the game ending, or your clock running low. */
+  function playSounds() {
+    const now = { id: state.id, moves: state.moves.length, status: state.status };
+    const before = heard;
+    heard = { ...now, lowWarned: before?.id === now.id ? before.lowWarned : false };
+    if (!before || before.id !== now.id) return;
+    if (now.moves > before.moves) soundForMove(state.moves.at(-1))();
+    if (before.status === 'active' && now.status === 'finished') setTimeout(sounds.gameEnd, 150);
+  }
 
   function canMoveColor(color) {
     if (!state || state.status !== 'active') return false;
@@ -189,6 +237,12 @@ export function mountGameView(root, { user, kind, id, navigate }) {
       elClock.classList.toggle('running', running);
       elClock.classList.toggle('low', running && ms < lowAt);
       if (kind === 'local' && running && ms <= 0) return flagLocal(color);
+      // One warning beep when your own clock drops under 10 seconds.
+      const mine = state.mode === 'online' ? myOnlineColor() === color : state.mode === 'computer' && isOwner() && color !== engineColor();
+      if (mine && running && ms < 10000 && heard && heard.id === state.id && !heard.lowWarned) {
+        heard.lowWarned = true;
+        sounds.lowTime();
+      }
     }
   }
 
@@ -1188,7 +1242,9 @@ export function mountGameView(root, { user, kind, id, navigate }) {
       board.setAnnotations({ arrows: r.attempt ? [] : solution });
       board.setPosition(shown, r.attempt && h ? { from: h.from, to: h.to } : null);
     } else {
-      board.setAnnotations(review?.explore ? exploreAnnotations() : review ? reviewAnnotations(ply) : hintAnnotations());
+      board.setAnnotations(review?.explore ? exploreAnnotations() : review ? reviewAnnotations(ply) : premove
+        ? { highlights: [{ square: premove.from, color: 'rgba(214, 69, 47, 0.55)' }, { square: premove.to, color: 'rgba(214, 69, 47, 0.55)' }] }
+        : hintAnnotations());
       const history = chess.history({ verbose: true });
       const last = history[history.length - 1];
       board.setPosition(chess, last ? { from: last.from, to: last.to } : null);
@@ -1247,7 +1303,11 @@ export function mountGameView(root, { user, kind, id, navigate }) {
     const myTurn = live && state.status === 'active' && state.mode === 'online' && canMoveColor(chess.turn());
     document.title = myTurn ? '● Your move — Chess Club' : 'Chess Club';
     tickClocks();
-    if (live) maybeEngineMove();
+    playSounds();
+    if (live) {
+      playPremoveIfReady();
+      maybeEngineMove();
+    }
   }
 
   function onKey(e) {

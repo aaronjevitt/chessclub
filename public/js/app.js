@@ -6,6 +6,7 @@ import { resetView } from './account-view.js';
 import { clubSettingsCard, memberAdminActions } from './club-admin-view.js';
 import { leaderboardTable } from './leaderboard-view.js';
 import { gameCard } from './game-card.js';
+import { soundEnabled, setSoundEnabled, sounds } from './sounds.js';
 import { profileView } from './profile-view.js';
 import { clubTournamentsCard, tournamentView } from './tournament-view.js';
 import { renderMiniBoard } from './board.js';
@@ -36,6 +37,17 @@ function renderNav() {
   clear(nav,
     el('a', { href: '#/' }, 'Home'),
     el('a', { href: '#/new' }, 'New game'),
+    el('button', {
+      type: 'button',
+      class: 'btn ghost small sound-toggle',
+      title: 'Sounds on/off',
+      'aria-label': 'Toggle sounds',
+      onclick: (e) => {
+        setSoundEnabled(!soundEnabled());
+        e.currentTarget.textContent = soundEnabled() ? '🔊' : '🔇';
+        if (soundEnabled()) sounds.move();
+      },
+    }, soundEnabled() ? '🔊' : '🔇'),
     el('a', { href: `#/player/${user.id}`, class: 'nav-user' }, `♟ ${user.username}`),
     el('button', {
       type: 'button',
