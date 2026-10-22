@@ -201,7 +201,9 @@ details summary { cursor: pointer; font-weight: 600; margin: 1rem 0 .7rem; }
 .p-wP { background-image: url(/pieces/wP.svg); } .p-bP { background-image: url(/pieces/bP.svg); }
 .board:not(.mini) .piece { cursor: grab; }
 .piece.dragging { opacity: .3; }
-.piece.ghost { position: fixed; z-index: 100; pointer-events: none; display: none; transform: scale(1.1); filter: drop-shadow(0 4px 6px rgba(0, 0, 0, .35)); }
+#drag-layer { position: fixed; inset: 0; overflow: hidden; pointer-events: none; z-index: 100; }
+/* Absolute inside the fixed, clipped #drag-layer, so it can never extend past the screen edges. */
+.piece.ghost { position: absolute; pointer-events: none; display: none; transform: scale(1.1); filter: drop-shadow(0 4px 6px rgba(0, 0, 0, .35)); }
 .piece.ghost.visible { display: block; }
 .coord { position: absolute; font-size: max(9px, 2.3cqi); font-weight: 700; pointer-events: none; z-index: 2; }
 .coord.rank { top: 2px; left: 3px; }
@@ -362,6 +364,8 @@ body.tv-mode main { max-width: none; padding: 0; }
 /* Pinch-zoom still works; double-tap zoom (triggered by tapping a piece then a square) does not. */
 html, body, a, button, input, select, label, summary, .move-list, .side-panel { touch-action: manipulation; }
 /* No long-press callout, magnifier or text selection on the board. */
+/* Nothing may make the page wider than the screen (iOS Safari re-zooms when that happens). */
+html, body { overflow-x: hidden; overflow-x: clip; }
 .board { -webkit-touch-callout: none; -webkit-user-select: none; -webkit-tap-highlight-color: transparent; }
 @media (max-width: 900px) {
   /* iOS zooms into focused inputs whose text is smaller than 16px. */

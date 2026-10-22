@@ -30,6 +30,21 @@ export function makePiece(piece) {
 }
 
 /**
+ * Full-screen, clipped layer for the piece that follows your finger while dragging. Without it, the
+ * dragged piece can poke past the screen edge (e.g. moving an h-file piece), which makes iOS Safari
+ * re-zoom the page.
+ */
+function dragLayer() {
+  let layer = document.getElementById('drag-layer');
+  if (!layer) {
+    layer = document.createElement('div');
+    layer.id = 'drag-layer';
+    document.body.appendChild(layer);
+  }
+  return layer;
+}
+
+/**
  * Read-only board for previews (club view, projector view).
  * @param opts.lastMove {from, to} squares to highlight; opts.check square of a king in check
  */
@@ -316,7 +331,7 @@ export class Board {
     ghost.classList.add('ghost');
     const size = this.el.getBoundingClientRect().width / 8;
     ghost.style.width = ghost.style.height = `${size}px`;
-    document.body.appendChild(ghost);
+    dragLayer().appendChild(ghost);
     this.drag = { from: sq, ghost, pieceEl, startX: e.clientX, startY: e.clientY, moved: false, wasSelected, size };
     this._positionGhost(e);
     window.addEventListener('pointermove', this._onPointerMove);
