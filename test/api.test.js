@@ -5,10 +5,11 @@ import { createServer } from '../server/app.js';
 
 let server;
 let db;
+let maintenance;
 let base;
 
 before(async () => {
-  ({ server, db } = createServer({ dbFile: ':memory:' }));
+  ({ server, db, maintenance } = createServer({ dbFile: ':memory:', rateLimits: false }));
   await new Promise((resolve) => server.listen(0, resolve));
   base = `http://localhost:${server.address().port}`;
 });
@@ -344,4 +345,54 @@ test('eval bar move limit is stored and validated', async () => {
   assert.equal(bad.meta.evalBarMoves, undefined);
   const off = (await a.post(`/api/clubs/${club.id}/games`, { mode: 'self', evalBarMoves: 10 })).body.game;
   assert.equal(off.meta.evalBar, undefined);
+});
+
+test('maintenance aborts unstarted timed games, stale paused broadcasts and old challenges', async () => {
+  const a = await registered('sweeper');
+  const b = await registered('sweepee');
+  const club = (await a.post('/api/clubs', { name: 'Sweep' })).body.club;
+  await b.post(`/api/clubs/${club.id}/join`);
+  const timed = (await a.post(`/api/clubs/${club.id}/games`, { mode: 'online', color: 'white', timeControl: { initial: 60 } })).body.game;
+  await b.post(`/api/games/${timed.id}/accept`);
+  const cast = (await a.post(`/api/clubs/${club.id}/games`, { mode: 'self' })).body.game;
+  await a.post(`/api/games/${cast.id}/cancel`); // paused
+  const open = (await a.post(`/api/clubs/${club.id}/games`, { mode: 'online' })).body.game;
+  const fresh = (await a.post(`/api/clubs/${club.id}/games`, { mode: 'online' })).body.game;
+
+  const age = (id, ms) => db.prepare('UPDATE games SET updated_at = ? WHERE id = ?').run(Date.now() - ms, id);
+  age(timed.id, 11 * 60 * 1000);
+  age(cast.id, 25 * 60 * 60 * 1000);
+  age(open.id, 8 * 24 * 60 * 60 * 1000);
+  const changed = maintenance.sweep();
+  assert.deepEqual(new Set(changed), new Set([timed.id, cast.id, open.id]));
+  assert.equal((await a.get(`/api/games/${timed.id}`)).body.game.status, 'aborted');
+  assert.equal((await a.get(`/api/games/${fresh.id}`)).body.game.status, 'waiting');
+});
+
+test('club owner tools: edit, privacy, new invite code, remove member', async () => {
+  const owner = await registered('adminown');
+  const member = await registered('adminmem');
+  const club = (await owner.post('/api/clubs', { name: 'Admin Club' })).body.club;
+  await member.post(`/api/clubs/${club.id}/join`);
+  const patch = (c, body) => fetch(`${base}/api/clubs/${club.id}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json', Cookie: c.cookie }, body: JSON.stringify(body) });
+
+  assert.equal((await patch(member, { name: 'Hacked' })).status, 403);
+  assert.equal((await patch(owner, { name: 'Renamed Club', description: 'Thursdays', isPublic: false })).status, 200);
+  const detail = (await member.get(`/api/clubs/${club.id}`)).body.club;
+  assert.equal(detail.name, 'Renamed Club');
+  assert.equal(detail.isPublic, false);
+
+  const oldCode = (await owner.get(`/api/clubs/${club.id}`)).body.club.inviteCode;
+  const { inviteCode } = (await owner.post(`/api/clubs/${club.id}/invite-code`)).body;
+  assert.notEqual(inviteCode, oldCode);
+  const newcomer = await registered('adminnew');
+  assert.equal((await newcomer.post('/api/clubs/join-by-code', { code: oldCode })).status, 404);
+  assert.equal((await newcomer.post('/api/clubs/join-by-code', { code: inviteCode })).status, 200);
+
+  const challenge = (await member.post(`/api/clubs/${club.id}/games`, { mode: 'online' })).body.game;
+  const del = (c, uid) => fetch(`${base}/api/clubs/${club.id}/members/${uid}`, { method: 'DELETE', headers: { Cookie: c.cookie } });
+  assert.equal((await del(member, owner.user.id)).status, 403);
+  assert.equal((await del(owner, member.user.id)).status, 200);
+  assert.equal((await member.get(`/api/clubs/${club.id}/games`)).status, 403);
+  assert.equal((await owner.get(`/api/games/${challenge.id}`)).body.game.status, 'aborted');
 });

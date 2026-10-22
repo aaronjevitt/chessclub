@@ -37,16 +37,28 @@ export function createAuth(db) {
     SELECT u.id, u.username, s.created_at AS session_created
     FROM sessions s JOIN users u ON u.id = s.user_id WHERE s.token = ?`);
   const deleteSession = db.prepare('DELETE FROM sessions WHERE token = ?');
+  const deleteOtherSessions = db.prepare('DELETE FROM sessions WHERE user_id = ? AND token IS NOT ?');
 
-  function createSession(res, userId) {
+  /** Behind an HTTPS reverse proxy (with trust proxy set) req.secure is true, so the cookie is marked Secure. */
+  function createSession(req, res, userId) {
     const token = crypto.randomBytes(32).toString('hex');
     insertSession.run(token, userId, Date.now());
     res.cookie(SESSION_COOKIE, token, {
       httpOnly: true,
       sameSite: 'lax',
-      secure: process.env.COOKIE_SECURE === '1',
+      secure: process.env.COOKIE_SECURE === '1' || req.secure,
       maxAge: SESSION_MAX_AGE_MS,
     });
+    return token;
+  }
+
+  /** Sign a user out everywhere, optionally keeping one session (e.g. the one changing the password). */
+  function destroyUserSessions(userId, keepToken = null) {
+    deleteOtherSessions.run(userId, keepToken);
+  }
+
+  function sessionToken(req) {
+    return parseCookies(req.headers.cookie)[SESSION_COOKIE] || null;
   }
 
   function userFromCookieHeader(header) {
@@ -77,5 +89,5 @@ export function createAuth(db) {
     next();
   }
 
-  return { createSession, destroySession, userFromCookieHeader, attachUser, requireUser };
+  return { createSession, destroySession, destroyUserSessions, sessionToken, userFromCookieHeader, attachUser, requireUser };
 }

@@ -68,6 +68,15 @@ export function openDb(file) {
       updated_at INTEGER NOT NULL
     );
     CREATE INDEX IF NOT EXISTS games_club_status ON games(club_id, status);
+
+    -- One-time password reset links created by a club owner for a member (token stored hashed).
+    CREATE TABLE IF NOT EXISTS password_resets (
+      token_hash TEXT PRIMARY KEY,
+      user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      created_by INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      expires_at INTEGER NOT NULL,
+      used_at INTEGER
+    );
   `);
 
   // Columns added after the first release; add them to existing databases.

@@ -512,3 +512,21 @@ html, body { overflow-x: hidden; overflow-x: clip; }
 .sq.highlighted::before { content: ""; position: absolute; inset: 0; background: var(--highlight); opacity: .35; }
 .hint-box { padding: .55rem .7rem; border-radius: 8px; background: rgba(59, 130, 246, .12); border: 1px solid rgba(59, 130, 246, .35); }
 .btn.hint-btn { border-color: rgba(59, 130, 246, .5); }
+
+/* ---------- club admin ---------- */
+.member-actions { gap: .3rem; flex-wrap: nowrap; }
+.member-menu { position: relative; }
+.member-menu > summary { list-style: none; margin: 0; }
+.member-menu > summary::-webkit-details-marker { display: none; }
+.member-menu .menu-items {
+  position: absolute; right: 0; top: calc(100% + 4px); z-index: 20; display: flex; flex-direction: column; min-width: 10rem;
+  background: var(--surface); border: 1px solid var(--border); border-radius: 8px; box-shadow: var(--shadow); padding: .25rem;
+}
+.member-menu .menu-items .btn { justify-content: flex-start; border: 0; }
+.member-panel:empty { display: none; }
+.member-panel { margin: .3rem 0 .4rem; }
+.reset-link { display: flex; flex-direction: column; gap: .4rem; padding: .6rem; border-radius: 8px; background: var(--accent-soft); }
+.club-settings > summary { margin: 0; }
+.club-settings[open] > summary { margin-bottom: .8rem; }
+.invite-row { margin-top: .8rem; padding-top: .8rem; border-top: 1px solid var(--border); }
+a.nav-user { color: var(--muted) !important; }

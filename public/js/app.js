@@ -1,6 +1,9 @@
 import './no-double-tap-zoom.js';
 import { api, getSocket, resetSocket } from './api.js';
 import { el, clear, toast, timeAgo } from './dom.js';
+import { field, formData, submitting } from './ui.js';
+import { resetView, changePasswordForm } from './account-view.js';
+import { clubSettingsCard, memberAdminActions } from './club-admin-view.js';
 import { renderMiniBoard } from './board.js';
 import { mountGameView, MODE_LABEL, resultText } from './game-view.js';
 import { listLocalGames, saveLocalGame, newLocalId } from './local-games.js';
@@ -29,7 +32,7 @@ function renderNav() {
   clear(nav,
     el('a', { href: '#/' }, 'Home'),
     el('a', { href: '#/new' }, 'New game'),
-    el('span', { class: 'nav-user' }, `♟ ${user.username}`),
+    el('a', { href: '#/account', class: 'nav-user' }, `♟ ${user.username}`),
     el('button', {
       type: 'button',
       class: 'btn ghost small',
@@ -41,10 +44,6 @@ function renderNav() {
         navigate('#/login');
       },
     }, 'Log out'));
-}
-
-function field(label, input, hint) {
-  return el('label', { class: 'field' }, el('span', { class: 'field-label' }, label), input, hint ? el('span', { class: 'hint' }, hint) : null);
 }
 
 /** "Show evaluation bar" checkbox plus an optional move limit after which the bar fades away. */
@@ -62,22 +61,6 @@ function evalBarSettings(d) {
   if (d.evalBar !== 'on') return {};
   const n = Math.round(Number(d.evalBarMoves));
   return n >= 1 && n <= 200 ? { evalBar: true, evalBarMoves: n } : { evalBar: true };
-}
-
-function formData(form) {
-  return Object.fromEntries(new FormData(form).entries());
-}
-
-async function submitting(form, fn) {
-  const btn = form.querySelector('button[type=submit]');
-  if (btn) btn.disabled = true;
-  try {
-    await fn();
-  } catch (err) {
-    toast(err.message, 'error');
-  } finally {
-    if (btn) btn.disabled = false;
-  }
 }
 
 // ---------- auth ----------
@@ -352,9 +335,14 @@ async function clubView(clubId) {
     }
     clear(membersSection,
       el('h2', {}, 'Members ', el('span', { class: 'count' }, String(members.length))),
-      el('div', { class: 'list' }, members.map((m) => el('div', { class: 'list-item' },
+      el('div', { class: 'list' }, members.map((m) => {
+        const panel = el('div', { class: 'member-panel' });
+        const isOwner = membership.role === 'owner';
+        return el('div', { class: 'member-entry' }, el('div', { class: 'list-item' },
         el('div', {}, el('strong', {}, m.username), m.role === 'owner' ? el('span', { class: 'badge' }, 'Owner') : null,
           m.id === user.id ? el('span', { class: 'muted small' }, ' (you)') : null),
+        el('div', { class: 'row member-actions' },
+        isOwner && m.id !== user.id ? memberAdminActions(club, m, { onRemoved: loadMembers, panel }) : null,
         m.id !== user.id ? el('button', {
           type: 'button',
           class: 'btn small',
@@ -367,7 +355,8 @@ async function clubView(clubId) {
               toast(err.message, 'error');
             }
           },
-        }, 'Challenge') : null))));
+        }, 'Challenge') : null)), panel);
+      })));
   }
 
   clear(root, el('div', { class: 'club' },
@@ -396,6 +385,7 @@ async function clubView(clubId) {
     el('div', { class: 'club-body' },
       el('div', { class: 'club-main' }, liveSection, challengeSection, finishedSection),
       el('aside', { class: 'club-side' },
+        membership.role === 'owner' ? clubSettingsCard(club, () => route()) : null,
         el('section', { class: 'card' }, el('h2', {}, 'Challenge a member'), challengeForm),
         el('section', { class: 'card' }, membersSection)))));
 
@@ -552,6 +542,13 @@ async function newGameView(params) {
   clear(wrap, form);
 }
 
+// ---------- account ----------
+
+function accountView() {
+  clear(main, el('div', { class: 'narrow stack' },
+    el('section', { class: 'card' }, el('h1', {}, user.username), el('h2', {}, 'Change password'), changePasswordForm())));
+}
+
 // ---------- router ----------
 
 async function route() {
@@ -568,6 +565,15 @@ async function route() {
   const params = new URLSearchParams(query);
   const parts = (path || '/').split('/').filter(Boolean);
 
+  if (parts[0] === 'reset' && parts[1]) {
+    await resetView(main, parts[1], (u) => {
+      user = u;
+      resetSocket();
+      renderNav();
+      navigate('#/');
+    });
+    return;
+  }
   if (!user && !['login', 'register'].includes(parts[0])) {
     if (location.hash && location.hash !== '#/') sessionStorage.setItem('afterLogin', location.hash);
     navigate('#/login');
@@ -587,6 +593,7 @@ async function route() {
     else if (parts[0] === 'game' && parts[1]) viewCleanup = mountGameView(main, { user, kind: 'server', id: Number(parts[1]), navigate });
     else if (parts[0] === 'local' && parts[1]) viewCleanup = mountGameView(main, { user, kind: 'local', id: parts[1], navigate });
     else if (parts[0] === 'new') await newGameView(params);
+    else if (parts[0] === 'account') accountView();
     else await homeView();
     // If the user navigated away while this view was loading, tear it down right away.
     if (token !== routeToken) viewCleanup?.();

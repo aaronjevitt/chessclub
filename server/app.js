@@ -5,7 +5,10 @@ import { fileURLToPath } from 'node:url';
 import express from 'express';
 import { Server as SocketServer } from 'socket.io';
 import { openDb } from './db.js';
-import { createAuth, hashPassword, verifyPassword } from './auth.js';
+import { createAuth } from './auth.js';
+import { registerPublicAccountRoutes, registerAccountRoutes } from './account.js';
+import { createMaintenance } from './maintenance.js';
+import { registerClubAdminRoutes } from './clubadmin.js';
 import { START_FEN, replay, gameOverInfo, tryMove, isValidFen } from './chesslogic.js';
 import {
   TIMED_MODES, parseTimeControl, clampMs, getTimeControl, remainingTime, clockFields, timeoutResult,
@@ -34,7 +37,7 @@ function makeInviteCode() {
   return Array.from(bytes, (b) => alphabet[b % alphabet.length]).join('');
 }
 
-export function createServer({ dbFile = path.join(ROOT, 'data', 'chessclub.db') } = {}) {
+export function createServer({ dbFile = path.join(ROOT, 'data', 'chessclub.db'), rateLimits = true } = {}) {
   const db = openDb(dbFile);
   const auth = createAuth(db);
   const app = express();
@@ -42,6 +45,9 @@ export function createServer({ dbFile = path.join(ROOT, 'data', 'chessclub.db') 
   const io = new SocketServer(server);
 
   app.disable('x-powered-by');
+  // Behind nginx (or another reverse proxy on the local network): trust its X-Forwarded-* headers so
+  // req.ip is the player's address (for login limits) and req.secure reflects HTTPS (for secure cookies).
+  app.set('trust proxy', process.env.TRUST_PROXY || 'loopback, linklocal, uniquelocal');
   app.use(express.json({ limit: '200kb' }));
   app.use(auth.attachUser);
   // Browsers must check for new app files on every load (cheap 304s via ETag), so updates reach phones at once.
@@ -295,43 +301,15 @@ export function createServer({ dbFile = path.join(ROOT, 'data', 'chessclub.db') 
     return notify(g.id);
   }
 
-  // ---------- auth routes ----------
+  // ---------- accounts ----------
 
-  app.post('/api/register', (req, res) => {
-    const username = cleanText(req.body?.username, 40);
-    const password = typeof req.body?.password === 'string' ? req.body.password : '';
-    if (!/^[A-Za-z0-9_-]{3,20}$/.test(username)) {
-      throw new HttpError(400, 'Username must be 3-20 characters: letters, numbers, _ or -');
-    }
-    if (password.length < 6) throw new HttpError(400, 'Password must be at least 6 characters');
-    if (q.userByName.get(username)) throw new HttpError(409, 'That username is taken');
-    const { hash, salt } = hashPassword(password);
-    const { lastInsertRowid } = q.insertUser.run(username, hash, salt, Date.now());
-    auth.createSession(res, Number(lastInsertRowid));
-    res.status(201).json({ user: { id: Number(lastInsertRowid), username } });
-  });
-
-  app.post('/api/login', (req, res) => {
-    const username = cleanText(req.body?.username, 40);
-    const password = typeof req.body?.password === 'string' ? req.body.password : '';
-    const row = q.userByName.get(username);
-    if (!row || !verifyPassword(password, row.salt, row.password_hash)) {
-      throw new HttpError(401, 'Invalid username or password');
-    }
-    auth.createSession(res, row.id);
-    res.json({ user: { id: row.id, username: row.username } });
-  });
-
-  app.post('/api/logout', (req, res) => {
-    auth.destroySession(req, res);
-    res.json({ ok: true });
-  });
-
-  app.get('/api/me', (req, res) => {
-    res.json({ user: req.user });
-  });
+  const ctx = { app, db, io, q, auth, HttpError, cleanText, rateLimits };
+  registerPublicAccountRoutes(ctx);
 
   app.use('/api', auth.requireUser);
+  Object.assign(ctx, { notify, makeInviteCode });
+  registerAccountRoutes(ctx);
+  registerClubAdminRoutes(ctx);
 
   // ---------- clubs ----------
 
@@ -705,5 +683,16 @@ export function createServer({ dbFile = path.join(ROOT, 'data', 'chessclub.db') 
     socket.on('unwatch:club', (id) => socket.leave(`club:${Number(id)}`));
   });
 
-  return { app, server, io, db };
+  const maintenance = createMaintenance({
+    db,
+    dbFile,
+    notify,
+    backupDir: process.env.BACKUP_DIR,
+    keep: Number(process.env.BACKUP_KEEP) || 14,
+    backups: process.env.BACKUPS !== '0',
+  });
+  maintenance.start();
+  server.on('close', () => maintenance.stop());
+
+  return { app, server, io, db, maintenance };
 }
