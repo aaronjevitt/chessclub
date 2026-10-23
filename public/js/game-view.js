@@ -689,8 +689,12 @@ export function mountGameView(root, { user, kind, id, navigate }) {
         navigate('#/');
       }, { class: 'btn small ghost danger-text' }));
     }
+    // The hint text goes below the buttons, so showing it never moves the button you tap next.
+    const h = activeHint();
     clear(controls,
       items.length ? el('div', { class: 'row game-actions' }, items) : null,
+      h ? el('div', { class: 'hint-box' },
+        h.level === 1 ? ['Hint: move your ', el('strong', {}, h.piece), '.'] : ['Best move: ', el('strong', {}, h.san), '.']) : null,
       el('div', { class: 'row game-tools' }, tools));
   }
 
@@ -1287,18 +1291,14 @@ export function mountGameView(root, { user, kind, id, navigate }) {
       el('div', { class: 'game-meta-top' },
         state.clubId ? el('a', { href: `#/club/${state.clubId}`, class: 'club-link' }, icon('back', { size: 15 }), state.clubName) : el('span', { class: 'muted small' }, 'On this device'),
         el('span', { class: 'badges' }, flags)),
-      el('div', { class: 'muted small game-facts' }, facts.join(' · ')),
+      el('div', { class: 'muted small game-facts', title: facts.join(' · ') }, facts.join(' · ')),
       state.meta?.tournament ? el('a', { href: `#/tournament/${state.meta.tournament}`, class: 'small' }, `${state.meta.tournamentName || 'Tournament'}, round ${state.meta.round}`) : null);
 
     status.className = `status ${state.status === 'finished' ? 'over' : ''}`;
     clear(status, statusText(chess));
 
     clear(notice);
-    const h = activeHint();
-    if (h) {
-      clear(notice, el('div', { class: 'hint-box' },
-        h.level === 1 ? ['Hint: move your ', el('strong', {}, h.piece), '.'] : ['Best move: ', el('strong', {}, h.san), '.']));
-    } else if (kind === 'server' && state.mode === 'online' && state.status === 'active' && state.drawOfferBy && state.drawOfferBy !== user.id && myOnlineColor()) {
+    if (kind === 'server' && state.mode === 'online' && state.status === 'active' && state.drawOfferBy && state.drawOfferBy !== user.id && myOnlineColor()) {
       clear(notice, el('div', { class: 'draw-offer' }, 'Your opponent offers a draw.',
         button('Accept', () => serverAction('draw', { action: 'accept' }), { class: 'btn primary' }),
         button('Decline', () => serverAction('draw', { action: 'decline' }))));

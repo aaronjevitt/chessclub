@@ -237,7 +237,7 @@ details summary { cursor: pointer; font-weight: 600; margin: 1rem 0 .7rem; }
 .captured .piece { width: 20px; height: 20px; margin-right: -7px; }
 .material { color: var(--muted); font-size: .85rem; }
 .side-panel { display: flex; flex-direction: column; gap: .85rem; position: sticky; top: 76px; }
-.game-meta { display: flex; justify-content: space-between; align-items: center; gap: .5rem; flex-wrap: wrap; }
+.game-meta { display: flex; flex-direction: column; gap: .1rem; }
 .club-link { font-size: .85rem; display: inline-flex; align-items: center; gap: .25rem; }
 .status { font-weight: 700; font-size: 1.05rem; }
 .status.over { color: var(--accent); }
@@ -516,6 +516,9 @@ html, body { overflow-x: hidden; overflow-x: clip; }
 .sq.highlighted::before { content: ""; position: absolute; inset: 0; background: var(--highlight); opacity: .35; }
 .hint-box { padding: .55rem .7rem; border-radius: 8px; background: rgba(59, 130, 246, .12); border: 1px solid rgba(59, 130, 246, .35); }
 .btn.hint-btn { border-color: rgba(59, 130, 246, .5); }
+/* Its own full-width row: its label changes between taps, so it must not resize its neighbours. */
+.controls .game-actions .hint-btn { flex: 1 0 100%; }
+.controls > .row, .controls > .hint-box { flex: 1 0 100%; }
 
 /* ---------- club admin ---------- */
 .member-actions { gap: .3rem; flex-wrap: nowrap; }
@@ -619,7 +622,8 @@ table.standings tr.withdrawn { opacity: .6; }
 .icon { flex-shrink: 0; vertical-align: -.2em; }
 
 .game-meta-top { display: flex; justify-content: space-between; align-items: center; gap: .5rem; }
-.game-facts { margin-top: .3rem; }
+/* One line, so a new fact (e.g. a hint used) never pushes the buttons below it down. */
+.game-facts { margin-top: .3rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .game-actions { margin-bottom: .5rem; }
 .game-tools { gap: .25rem; border-top: 1px solid var(--border); padding-top: .5rem; }
 .game-tools .btn { color: var(--muted); }
