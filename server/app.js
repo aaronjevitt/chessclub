@@ -487,7 +487,8 @@ export function createServer({ dbFile = path.join(ROOT, 'data', 'chessclub.db'),
     const { club } = requireMember(req);
     const visible = (rows) => rows.filter((g) => canView(req.user, g)).map(serializeGame);
     res.json({
-      active: visible(q.clubGames.all(club.id, 'active', 200)),
+      // Club games, plus members' live Lichess games (if they share them).
+      active: [...visible(q.clubGames.all(club.id, 'active', 200)), ...lichess.clubLiveGames(club.id)],
       waiting: visible(q.clubGames.all(club.id, 'waiting', 100)),
       finished: visible(q.clubGames.all(club.id, 'finished', 30)),
     });

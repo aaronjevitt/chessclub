@@ -41,6 +41,21 @@ function ratingList(ratings) {
     el('span', { class: 'muted small' }, SPEED_LABEL[r.speed] || r.speed), ' ', el('strong', {}, `${r.rating}${r.provisional ? '?' : ''}`))));
 }
 
+/** "Show my live Lichess games in my clubs" switch (your games are public on Lichess either way). */
+function shareToggle(info) {
+  const box = el('input', { type: 'checkbox', checked: info.shareInClub !== false });
+  box.addEventListener('change', async () => {
+    try {
+      await api('/lichess/sharing', { method: 'POST', body: { share: box.checked } });
+      toast(box.checked ? 'Your live Lichess games show in your clubs' : 'Your Lichess games are hidden from your clubs');
+    } catch (err) {
+      box.checked = !box.checked;
+      toast(err.message, 'error');
+    }
+  });
+  return el('label', { class: 'check lichess-share' }, box, ' Show my live Lichess games to my clubs (on the club page and projector)');
+}
+
 /** Profile card: your own (connect / disconnect) or another member's linked account. */
 export function lichessProfileCard({ isMe, info, status }) {
   if (!isMe) {
@@ -80,6 +95,7 @@ export function lichessProfileCard({ isMe, info, status }) {
     el('p', {}, 'Connected as ', el('a', { href: info.url, target: '_blank', rel: 'noopener' }, el('strong', {}, info.username))),
     ratingList(info.ratings),
     el('p', { class: 'muted small' }, 'Lichess games change only your Lichess rating, not your club rating.'),
+    shareToggle(info),
     el('button', {
       type: 'button', class: 'btn small ghost',
       onclick: async () => {
@@ -341,6 +357,7 @@ export function mountLichessGame(root, id, { navigate }) {
       return winner ? `${winner} wins by ${how}` : `Draw${how && how !== 'agreement' ? ` — ${how}` : ''}`;
     }
     if (viewPly !== null) return `Viewing move ${Math.ceil(viewPly / 2)}`;
+    if (!game.myColor) return `${(turn() === 'w' ? game.white : game.black).name} to move`;
     const mine = turn() === (game.myColor === 'white' ? 'w' : 'b');
     return mine ? 'Your move' : 'Waiting for your opponent';
   }
@@ -370,13 +387,16 @@ export function mountLichessGame(root, id, { navigate }) {
       el('div', { class: 'game-meta-top' },
         el('a', { href: game.url, target: '_blank', rel: 'noopener', class: 'club-link' }, 'Open on Lichess'),
         el('span', { class: 'badges' }, !game.finished ? el('span', { class: 'badge live' }, 'Live') : null)),
-      el('div', { class: 'muted small game-facts' }, ['Lichess', game.rated ? 'Rated' : 'Casual', tc ? `${tcLabel(tc)} ${speedName(tc)}` : null].filter(Boolean).join(' · ')));
+      el('div', { class: 'muted small game-facts' }, ['Lichess', game.rated ? 'Rated' : 'Casual', tc ? `${tcLabel(tc)} ${speedName(tc)}` : null].filter(Boolean).join(' · ')),
+      game.owner ? el('div', { class: 'muted small' }, 'Watching ', el('a', { href: `#/player/${game.owner.id}` }, game.owner.username), '’s game live') : null);
     status.className = `status ${game.finished ? 'over' : ''}`;
     clear(status, statusText());
 
     clear(notice);
     const myColor = game.myColor;
-    if (!game.finished && game.drawOffer && game.drawOffer !== myColor) {
+    if (!myColor) {
+      // Spectators only watch: no offers, claims or saved-game links.
+    } else if (!game.finished && game.drawOffer && game.drawOffer !== myColor) {
       clear(notice, el('div', { class: 'draw-offer' }, 'Your opponent offers a draw.',
         button('Accept', () => action('draw-accept'), 'btn primary'), button('Decline', () => action('draw-decline'))));
     } else if (!game.finished && game.opponentGone) {
@@ -406,7 +426,9 @@ export function mountLichessGame(root, id, { navigate }) {
       button(icon('last'), () => step(game.moves.length), 'btn ghost', 'Latest move'));
 
     const items = [];
-    if (!game.finished) {
+    if (!myColor) {
+      // nothing to do but watch
+    } else if (!game.finished) {
       if (game.moves.length < 2) items.push(button('Abort', () => action('abort')));
       else if (game.drawOffer === myColor) items.push(button('Draw offered…', null, 'btn'));
       else items.push(button('Offer draw', () => action('draw-offer')));
@@ -414,7 +436,7 @@ export function mountLichessGame(root, id, { navigate }) {
     } else {
       items.push(el('a', { href: '#/new?mode=lichess', class: 'btn primary' }, 'New Lichess game'));
     }
-    clear(controls, el('div', { class: 'row game-actions' }, items),
+    clear(controls, items.length ? el('div', { class: 'row game-actions' }, items) : null,
       el('div', { class: 'row game-tools' }, button([icon('flip', { size: 16 }), ' Flip board'], () => { board.flip(); render(); }, 'btn small ghost')));
     tick();
     document.title = !game.finished && turn() === (myColor === 'white' ? 'w' : 'b') ? 'Your move — Chess Club' : 'Chess Club';

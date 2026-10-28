@@ -69,7 +69,7 @@ function tile(game, evalBar) {
   const result = resultText(game);
   const boardEl = el('div', { class: 'tv-board' }, board,
     result ? el('div', { class: 'tv-result' }, el('strong', {}, game.result.replace('1/2', '½')), el('span', {}, result)) : null);
-  return el('a', { href: `#/game/${game.id}`, class: `tv-tile ${game.status !== 'active' ? 'finished' : ''}` },
+  return el('a', { href: game.href || `#/game/${game.id}`, class: `tv-tile ${game.status !== 'active' ? 'finished' : ''}` },
     playerRow(game, 'b'),
     evalBar ? el('div', { class: 'tv-board-row' }, evalBar.el, boardEl) : boardEl,
     playerRow(game, 'w'),
@@ -80,7 +80,7 @@ function tile(game, evalBar) {
 /** Small tile for the strip of just-finished games along the bottom of the screen. */
 function finishedTile(game) {
   const score = game.result === '1/2-1/2' ? '½-½' : game.result;
-  return el('a', { href: `#/game/${game.id}`, class: 'tv-done' },
+  return el('a', { href: game.href || `#/game/${game.id}`, class: 'tv-done' },
     renderMiniBoard(game.fen, 'white', boardDecorations(game)),
     el('div', { class: 'tv-done-info' },
       el('div', { class: 'tv-done-score' }, score),
@@ -235,7 +235,7 @@ export async function mountTvView(root, clubId) {
       // Private games are never shown on a shared screen.
       .filter((g) => g.visibility === 'club')
       // Sort by id so boards keep their place on screen as moves come in.
-      .sort((a, b) => a.id - b.id);
+      .sort((a, b) => (a.createdAt || 0) - (b.createdAt || 0));
     challenges = data.waiting.filter((g) => g.visibility === 'club').sort((a, b) => a.createdAt - b.createdAt);
     try {
       ({ leaderboard } = await api(`/clubs/${club.id}/leaderboard`));

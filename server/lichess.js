@@ -109,6 +109,12 @@ export function registerLichess({ app, db, io, q, HttpError, cleanText, push, ho
       game_id INTEGER NOT NULL REFERENCES games(id) ON DELETE CASCADE,
       PRIMARY KEY (lichess_game_id, user_id)
     );`);
+  // Members' live Lichess games show in their clubs unless they turn it off (their games are public on Lichess anyway).
+  try {
+    db.exec('ALTER TABLE lichess_accounts ADD COLUMN share_in_club INTEGER NOT NULL DEFAULT 1');
+  } catch {
+    // already there
+  }
   const s = {
     account: db.prepare('SELECT * FROM lichess_accounts WHERE user_id = ?'),
     upsert: db.prepare(`INSERT INTO lichess_accounts (user_id, lichess_id, username, token, perfs, perfs_at, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)
@@ -119,6 +125,11 @@ export function registerLichess({ app, db, io, q, HttpError, cleanText, push, ho
     imported: db.prepare('SELECT game_id FROM lichess_imports WHERE lichess_game_id = ? AND user_id = ?'),
     addImport: db.prepare('INSERT OR IGNORE INTO lichess_imports (lichess_game_id, user_id, game_id) VALUES (?, ?, ?)'),
     homeClub: db.prepare('SELECT club_id FROM memberships WHERE user_id = ? ORDER BY joined_at LIMIT 1'),
+    setShare: db.prepare('UPDATE lichess_accounts SET share_in_club = ? WHERE user_id = ?'),
+    clubsOf: db.prepare('SELECT club_id FROM memberships WHERE user_id = ?'),
+    sharesClub: db.prepare('SELECT 1 FROM memberships a JOIN memberships b ON a.club_id = b.club_id WHERE a.user_id = ? AND b.user_id = ? LIMIT 1'),
+    isMember: db.prepare('SELECT 1 FROM memberships WHERE club_id = ? AND user_id = ?'),
+    clubName: db.prepare('SELECT name FROM clubs WHERE id = ?'),
   };
   const pending = new Map(); // OAuth state -> {userId, verifier, redirectUri, clientId, at}
   const sessions = new Map(); // userId -> session
@@ -378,6 +389,7 @@ export function registerLichess({ app, db, io, q, HttpError, cleanText, push, ho
           g.stateAt = Date.now();
           if (FINISHED.has(g.state?.status)) finishGame(sess, g);
           emit(sess.userId, 'lichess:game', snapshot(sess, g));
+          broadcast(sess, g);
           if (g.finished) break;
         }
       } catch {
@@ -386,6 +398,67 @@ export function registerLichess({ app, db, io, q, HttpError, cleanText, push, ho
       if (!g.finished && !ac.signal.aborted && !sess.closed) setTimeout(() => watchGame(sess, id), 3000);
     })();
     return g;
+  }
+
+  // ---------- watching members' games ----------
+
+  const sharing = (sess) => !!sess.account.share_in_club;
+
+  /** What spectators see: the same game, without the player's private bits. */
+  function spectatorSnapshot(sess, g) {
+    const snap = snapshot(sess, g);
+    return { ...snap, myColor: null, importedId: null, owner: { id: sess.userId, username: q.userName.get(sess.userId)?.username } };
+  }
+
+  /** Relay a game update to clubmates watching it, and refresh the member's club pages. */
+  function broadcast(sess, g) {
+    if (!sharing(sess) || !g.full) return;
+    io.to(`lichess:${g.id}`).except(`user:${sess.userId}`).emit('lichess:game', spectatorSnapshot(sess, g));
+    for (const { club_id: clubId } of s.clubsOf.all(sess.userId)) io.to(`club:${clubId}`).emit('club:changed', { clubId });
+  }
+
+  /** The member's session holding a shared live game, if the viewer may watch it. */
+  function sharedGame(viewerId, id) {
+    for (const sess of sessions.values()) {
+      const g = sess.games.get(id);
+      if (!g || !g.full || !sharing(sess) || sess.userId === viewerId) continue;
+      if (s.sharesClub.get(viewerId, sess.userId)) return { sess, g };
+    }
+    return null;
+  }
+
+  /** A shared live game in the shape the club page and projector use for club games. */
+  function clubShape(sess, g, clubName) {
+    const snap = snapshot(sess, g);
+    const turn = snap.fen?.split(' ')[1] || 'w';
+    const running = snap.moves.length >= 2 ? turn : null;
+    return {
+      id: `lichess-${g.id}`,
+      href: `#/lichess/${g.id}`,
+      source: 'lichess',
+      mode: 'lichess',
+      visibility: 'club',
+      status: 'active',
+      result: '*',
+      white: { id: null, name: snap.white.name, rating: snap.white.rating },
+      black: { id: null, name: snap.black.name, rating: snap.black.rating },
+      member: { id: sess.userId, username: q.userName.get(sess.userId)?.username, color: snap.myColor },
+      startFen: snap.initialFen,
+      fen: snap.fen,
+      turn,
+      moves: snap.moves,
+      meta: { rated: snap.rated, lichessUrl: snap.url },
+      timeControl: snap.clock?.initial != null ? { initial: snap.clock.initial / 1000, increment: snap.clock.increment / 1000 } : null,
+      // Lichess reports each side's time as of its last update; count down from when we received it.
+      clock: snap.wtime != null ? {
+        white: Math.max(0, snap.wtime - (running === 'w' ? Date.now() - g.stateAt : 0)),
+        black: Math.max(0, snap.btime - (running === 'b' ? Date.now() - g.stateAt : 0)),
+        running,
+      } : null,
+      clubName,
+      updatedAt: g.stateAt,
+      createdAt: g.full.createdAt,
+    };
   }
 
   /** "Your move" push when the member doesn't have the game open. */
@@ -548,6 +621,7 @@ export function registerLichess({ app, db, io, q, HttpError, cleanText, push, ho
       username: account.username,
       url: `${host}/@/${account.username}`,
       ratings: ratings(account),
+      shareInClub: !!account.share_in_club,
       seeking: sess.seek ? { time: sess.seek.time, increment: sess.seek.increment, rated: sess.seek.rated, since: sess.seek.since } : null,
       outgoing: sess.outgoing ? { username: sess.outgoing.username, since: sess.outgoing.since } : null,
       challenges: [...sess.challenges.values()].map((c) => ({
@@ -711,13 +785,32 @@ export function registerLichess({ app, db, io, q, HttpError, cleanText, push, ho
 
   // ---------- playing ----------
 
+  app.post('/api/lichess/sharing', (req, res) => {
+    const share = req.body?.share !== false;
+    s.setShare.run(share ? 1 : 0, req.user.id);
+    const sess = sessions.get(req.user.id);
+    if (sess) sess.account.share_in_club = share ? 1 : 0;
+    for (const { club_id: clubId } of s.clubsOf.all(req.user.id)) io.to(`club:${clubId}`).emit('club:changed', { clubId });
+    res.json({ shareInClub: share });
+  });
+
+  // Your own game, or a clubmate's live game you're watching (no Lichess account needed to watch).
   app.get('/api/lichess/games/:id', async (req, res) => {
-    const sess = requireSession(req);
     const id = String(req.params.id);
     if (!/^[A-Za-z0-9]{8,12}$/.test(id)) throw new HttpError(404, 'Game not found');
-    await ensureEvents(sess);
-    const g = watchGame(sess, id);
-    res.json({ game: g.error ? { id, error: g.error } : snapshot(sess, g) });
+    const own = session(req.user.id);
+    if (own?.games.has(id)) {
+      await ensureEvents(own);
+      const g = watchGame(own, id);
+      return res.json({ game: g.error ? { id, error: g.error } : snapshot(own, g) });
+    }
+    const shared = sharedGame(req.user.id, id);
+    if (shared) return res.json({ game: spectatorSnapshot(shared.sess, shared.g) });
+    if (!own) throw new HttpError(404, "This Lichess game isn't being shared with your club");
+    clearTimeout(own.idleTimer);
+    await ensureEvents(own);
+    const g = watchGame(own, id);
+    res.json({ game: g.error ? { id, error: g.error } : snapshot(own, g) });
   });
 
   const ACTIONS = { resign: 'resign', abort: 'abort', 'draw-offer': 'draw/yes', 'draw-accept': 'draw/yes', 'draw-decline': 'draw/no', 'claim-victory': 'claim-victory' };
@@ -749,7 +842,11 @@ export function registerLichess({ app, db, io, q, HttpError, cleanText, push, ho
       clearTimeout(sess.idleTimer);
       ensureEvents(sess);
     }
-    socket.on('watch:lichess', (id) => socket.join(`lichess:${String(id)}`));
+    // Only the player, or clubmates of a member who shares the game, may follow it.
+    socket.on('watch:lichess', (id) => {
+      const gameId = String(id);
+      if (sessions.get(userId)?.games.has(gameId) || sharedGame(userId, gameId)) socket.join(`lichess:${gameId}`);
+    });
     socket.on('unwatch:lichess', (id) => socket.leave(`lichess:${String(id)}`));
     socket.on('disconnect', () => {
       const current = sessions.get(userId);
@@ -759,9 +856,23 @@ export function registerLichess({ app, db, io, q, HttpError, cleanText, push, ho
 
   return {
     /** Linked Lichess account for a profile: {username, url, ratings} or null. */
+    /** Live Lichess games of the club's members who share them, shaped like club games. */
+    clubLiveGames(clubId) {
+      const name = s.clubName.get(clubId)?.name;
+      const out = [];
+      for (const sess of sessions.values()) {
+        if (!sharing(sess) || !s.isMember.get(clubId, sess.userId)) continue;
+        for (const g of sess.games.values()) {
+          if (g.finished || !g.full) continue;
+          const shaped = clubShape(sess, g, name);
+          if (shaped.fen) out.push(shaped); // skip a game whose moves couldn't be read rather than break the page
+        }
+      }
+      return out;
+    },
     profileInfo(userId) {
       const account = s.account.get(userId);
-      return account ? { username: account.username, url: `${host}/@/${account.username}`, ratings: ratings(account) } : null;
+      return account ? { username: account.username, url: `${host}/@/${account.username}`, ratings: ratings(account), shareInClub: !!account.share_in_club } : null;
     },
     close() {
       for (const sess of [...sessions.values()]) closeSession(sess);

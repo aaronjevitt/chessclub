@@ -9,7 +9,9 @@ import { tcLabel } from './time-control.js';
  * @param opts.extra     an extra line, e.g. review accuracy on profiles
  */
 export function gameCard(g, { local = false, showClub = true, extra = null } = {}) {
-  const href = local ? `#/local/${g.id}` : `#/game/${g.id}`;
+  const href = g.href || (local ? `#/local/${g.id}` : `#/game/${g.id}`);
+  // A member's live Lichess game: say whose it is, since the names are Lichess usernames.
+  if (g.source === 'lichess' && g.member && !extra) extra = `${g.member.username}'s game on Lichess`;
   const fen = g.fen || g.startFen;
   let status;
   if (g.status === 'waiting') status = 'Open challenge';

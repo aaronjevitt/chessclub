@@ -362,7 +362,7 @@ async function clubView(clubId) {
       el('h2', {}, 'Live games ', el('span', { class: 'count' }, String(data.active.length))),
       data.active.length
         // Oldest first, so cards keep their place as moves come in.
-        ? el('div', { class: 'game-grid live-grid' }, [...data.active].sort((a, b) => a.id - b.id).map((g) => gameCard(g, { showClub: false })))
+        ? el('div', { class: 'game-grid live-grid' }, [...data.active].sort((a, b) => (a.createdAt || 0) - (b.createdAt || 0)).map((g) => gameCard(g, { showClub: false })))
         : el('p', { class: 'muted' }, 'No games in progress. Challenge someone, or broadcast a game against the computer or over the board.'));
     clear(challengeSection,
       el('h2', {}, 'Open challenges'),

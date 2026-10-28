@@ -16,7 +16,7 @@ import { loadOpeningBook, labelIcon, explainMove, renderSummary, renderGraph } f
 
 const ANALYSIS_MS = 350;
 
-export const MODE_LABEL = { online: 'Online', computer: 'vs Computer', self: 'Self-play', otb: 'Over the board', import: 'Imported' };
+export const MODE_LABEL = { online: 'Online', computer: 'vs Computer', self: 'Self-play', otb: 'Over the board', import: 'Imported', lichess: 'Lichess' };
 const BROADCAST_MODES = new Set(['computer', 'self', 'otb']);
 const VALUES = { p: 1, n: 3, b: 3, r: 5, q: 9 };
 

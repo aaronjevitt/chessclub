@@ -178,7 +178,7 @@ test('clock rules and UCI helpers', () => {
 test('connect with OAuth PKCE, play a seek game, import it, ratings stay separate', async () => {
   const a = client();
   const user = (await a.post('/api/register', { username: 'clubalice', password: 'secret123' })).body.user;
-  await a.post('/api/clubs', { name: 'Lichess Club' });
+  const club = (await a.post('/api/clubs', { name: 'Lichess Club' })).body.club;
   assert.deepEqual((await a.get('/api/lichess')).body, { connected: false });
   assert.equal((await a.post('/api/lichess/seek', { limit: 600, increment: 0 })).status, 409);
 
@@ -239,13 +239,49 @@ test('connect with OAuth PKCE, play a seek game, import it, ratings stay separat
   assert.deepEqual(after2.moves, ['e4', 'e5']);
   assert.equal((await a.post('/api/lichess/games/game0001/move', { uci: 'zz' })).status, 400);
 
+  // Clubmates can watch: the game is listed with the club's live games and streams to spectators.
+  const b = client();
+  await b.post('/api/register', { username: 'clubbob', password: 'secret123' });
+  await b.post(`/api/clubs/${club.id}/join`);
+  const outsider = client();
+  await outsider.post('/api/register', { username: 'outsider', password: 'secret123' });
+  const listed = (await b.get(`/api/clubs/${club.id}/games`)).body.active.find((x) => x.source === 'lichess');
+  assert.deepEqual([listed.href, listed.member.username, listed.white.name, listed.moves.length, listed.clock.running], ['#/lichess/game0001', 'clubalice', 'Alice', 2, 'w']);
+  const watched = (await b.get('/api/lichess/games/game0001')).body.game;
+  assert.deepEqual([watched.myColor, watched.owner.username, watched.importedId], [null, 'clubalice', null]);
+  assert.equal((await outsider.get('/api/lichess/games/game0001')).status, 404);
+  assert.equal((await b.post('/api/lichess/games/game0001/resign')).status, 409, "spectators can't act");
+  const bSocket = ioClient(base, { extraHeaders: { Cookie: b.cookie }, transports: ['websocket'] });
+  const oSocket = ioClient(base, { extraHeaders: { Cookie: outsider.cookie }, transports: ['websocket'] });
+  const bEvents = [];
+  const oEvents = [];
+  bSocket.on('lichess:game', (d) => bEvents.push(d));
+  oSocket.on('lichess:game', (d) => oEvents.push(d));
+  await Promise.all([new Promise((r) => bSocket.on('connect', r)), new Promise((r) => oSocket.on('connect', r))]);
+  bSocket.emit('watch:lichess', 'game0001');
+  oSocket.emit('watch:lichess', 'game0001');
+  await wait(100);
+  g.moves.push('g1f3', 'b8c6');
+  pushState(g);
+  const seen = await until(() => bEvents.find((d) => d.moves?.length === 4));
+  assert.equal(seen.myColor, null);
+  assert.equal(oEvents.length, 0, 'outsiders get nothing');
+  // Turning sharing off hides it.
+  await a.post('/api/lichess/sharing', { share: false });
+  assert.equal((await b.get(`/api/clubs/${club.id}/games`)).body.active.filter((x) => x.source === 'lichess').length, 0);
+  assert.equal((await b.get('/api/lichess/games/game0001')).status, 404);
+  assert.equal((await a.get(`/api/users/${user.id}`)).body.lichess.shareInClub, false);
+  await a.post('/api/lichess/sharing', { share: true });
+  bSocket.close();
+  oSocket.close();
+
   // Resigning finishes the game; it's imported privately for review, without club rating changes.
   await a.post('/api/lichess/games/game0001/resign');
   const done = await until(() => events.findLast(([n, d]) => n === 'lichess:game' && d.finished && d.importedId)?.[1]);
   assert.equal(done.status, 'resign');
   const imported = (await a.get(`/api/games/${done.importedId}`)).body.game;
   assert.deepEqual([imported.mode, imported.visibility, imported.result, imported.meta.playerColor, imported.meta.lichess.id], ['import', 'private', '0-1', 'white', 'game0001']);
-  assert.deepEqual(imported.moves, ['e4', 'e5']);
+  assert.deepEqual(imported.moves, ['e4', 'e5', 'Nf3', 'Nc6']);
   assert.equal((await a.get(`/api/users/${user.id}`)).body.clubs[0].rating, 1200);
   // Lichess reports our rating change in the finish event; it shows on the board and in the import.
   for (const res of fake.eventStreams) send(res, { type: 'gameFinish', game: { gameId: 'game0001', fullId: 'game0001abcd', ratingDiff: -7 } });
