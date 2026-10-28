@@ -9,6 +9,7 @@ import { soundEnabled, setSoundEnabled, sounds } from './sounds.js';
 import { profileView } from './profile-view.js';
 import { puzzleView } from './puzzle-view.js';
 import { importCard } from './import-view.js';
+import { installLichessListeners, lichessHomeSection, lichessPlayPanel, mountLichessGame } from './lichess.js';
 import { clubTournamentsCard, tournamentView } from './tournament-view.js';
 import { renderMiniBoard } from './board.js';
 import { mountGameView, MODE_LABEL, resultText } from './game-view.js';
@@ -62,6 +63,7 @@ function renderNav() {
     tab(`#/player/${user.id}`, 'player', 'user', 'Profile'));
   document.body.classList.add('has-tabbar');
   markActiveTab();
+  installLichessListeners(navigate);
   clear(nav,
     el('a', { href: '#/', class: 'nav-link' }, 'Home'),
     el('a', { href: '#/new', class: 'nav-link' }, 'New game'),
@@ -147,6 +149,7 @@ async function homeView() {
   const myTurn = games.filter((g) => g.status === 'active' && g.mode === 'online' &&
     ((g.turn === 'w' && g.white.id === user.id) || (g.turn === 'b' && g.black.id === user.id)));
   const challengesForMe = games.filter((g) => g.status === 'waiting' && g.invitedId === user.id);
+  const lichess = lichessHomeSection({ navigate });
 
   const createForm = el('form', { class: 'stack' },
     field('Club name', el('input', { name: 'name', required: true, minlength: 2, maxlength: 60 })),
@@ -182,6 +185,8 @@ async function homeView() {
         el('a', { href: '#/new?mode=computer', class: 'quick' }, el('strong', {}, 'Play the computer'), el('span', { class: 'muted small' }, 'Stockfish, any strength')),
         el('a', { href: '#/new?mode=otb', class: 'quick' }, el('strong', {}, 'Record a real game'), el('span', { class: 'muted small' }, 'Enter moves as you play')),
         el('a', { href: '#/puzzles', class: 'quick' }, el('strong', {}, 'Puzzles'), el('span', { class: 'muted small' }, 'From your own mistakes')))),
+
+    lichess.el,
 
     challengesForMe.length ? el('section', {},
       el('h2', {}, 'Challenges for you'),
@@ -231,6 +236,7 @@ async function homeView() {
       mine.length
         ? el('details', { class: 'card start-club' }, el('summary', {}, 'Start a new club'), createForm)
         : el('section', { class: 'card' }, el('h2', {}, 'Start a club'), createForm)));
+  return lichess.cleanup;
 }
 
 function challengeRow(g, refresh, { showClub = true } = {}) {
@@ -467,7 +473,7 @@ async function newGameView(params) {
   const wrap = el('div', { class: 'narrow' });
   clear(main, wrap);
   const { mine } = await api('/clubs');
-  const mode = ['computer', 'self', 'otb'].includes(params.get('mode')) ? params.get('mode') : 'computer';
+  const mode = ['computer', 'self', 'otb', 'lichess'].includes(params.get('mode')) ? params.get('mode') : 'computer';
   const preClub = params.get('club');
 
   const modeOption = (value, title, desc) => el('label', { class: 'mode-option' },
@@ -494,26 +500,29 @@ async function newGameView(params) {
     field('Event', el('input', { name: 'event', maxlength: 80, placeholder: 'e.g. Tuesday club night, board 1' })),
     el('p', { class: 'muted small' }, 'Enter the moves of a real over-the-board game as it is played.'));
 
+  const lichessPanel = await lichessPlayPanel({ navigate, profileHref: `#/player/${user.id}` });
   const form = el('form', { class: 'card new-game stack' },
     el('h1', {}, 'New game'),
     el('div', { class: 'mode-options' },
       modeOption('computer', 'Play the computer', 'Stockfish, running in your browser'),
       modeOption('self', 'Play yourself', 'Move both sides — practice or analysis'),
-      modeOption('otb', 'Record a real game', 'Enter the moves of an over-the-board game as it is played')),
-    computerFields, otbFields,
-    evalBarField('Stockfish’s assessment beside the board; spectators see it too.'),
-    el('details', {},
+      modeOption('otb', 'Record a real game', 'Enter the moves of an over-the-board game as it is played'),
+      modeOption('lichess', 'Play on Lichess', 'Find or challenge Lichess players, or play the Lichess computer')),
+    computerFields, otbFields, lichessPanel,
+    el('div', { class: 'not-lichess' }, evalBarField('Stockfish’s assessment beside the board; spectators see it too.')),
+    el('details', { class: 'not-lichess' },
       el('summary', {}, 'Custom starting position'),
       field('FEN', el('input', { name: 'fen', placeholder: START_FEN, spellcheck: 'false' }), 'Leave empty for the standard starting position.')),
-    field('Visibility', el('select', { name: 'broadcast' },
+    el('div', { class: 'not-lichess' }, field('Visibility', el('select', { name: 'broadcast' },
       el('option', { value: '' }, 'Private — keep on this device only'),
       mine.map((c) => el('option', { value: c.id, selected: String(c.id) === preClub }, `Broadcast live to ${c.name}`))),
-    'You can start or stop broadcasting at any time during the game.'),
-    el('button', { type: 'submit', class: 'btn primary' }, 'Start game'));
+    'You can start or stop broadcasting at any time during the game.')),
+    el('button', { type: 'submit', class: 'btn primary not-lichess' }, 'Start game'));
 
   const sync = () => {
     const current = form.querySelector('input[name=mode]:checked').value;
     form.querySelectorAll('.mode-fields').forEach((f) => { f.hidden = f.dataset.mode !== current; });
+    form.querySelectorAll('.not-lichess').forEach((f) => { f.hidden = current === 'lichess'; });
     form.querySelector('.custom-elo').hidden = current !== 'computer' || form.elements.bot.value !== 'custom';
   };
   // Keep the Elo slider and number box in step.
@@ -632,9 +641,10 @@ async function route() {
     else if (parts[0] === 'new') await newGameView(params);
     else if (parts[0] === 'puzzles') viewCleanup = await puzzleView(main);
     else if (parts[0] === 'account') navigate(`#/player/${user.id}`);
-    else if (parts[0] === 'player' && parts[1]) await profileView(main, Number(parts[1]));
+    else if (parts[0] === 'player' && parts[1]) await profileView(main, Number(parts[1]), params);
+    else if (parts[0] === 'lichess' && parts[1]) viewCleanup = mountLichessGame(main, parts[1], { navigate });
     else if (parts[0] === 'tournament' && parts[1]) viewCleanup = await tournamentView(main, Number(parts[1]), { user, navigate });
-    else await homeView();
+    else viewCleanup = await homeView();
     // If the user navigated away while this view was loading, tear it down right away.
     if (token !== routeToken) viewCleanup?.();
     else cleanup = viewCleanup;

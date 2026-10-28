@@ -3,7 +3,7 @@ import { summarizeReview } from './review-summary.js';
 import { PROVISIONAL_GAMES } from './ratings.js';
 import { colourOf } from './colour.js';
 
-export function registerProfileRoutes({ app, db, q, HttpError, ratings, serializeGame, canView }) {
+export function registerProfileRoutes({ app, db, q, HttpError, ratings, serializeGame, canView, lichessProfile = () => null }) {
   const user = db.prepare('SELECT id, username, created_at FROM users WHERE id = ?');
   const sharedClubs = db.prepare(`
     SELECT c.id, c.name, theirs.rating, theirs.rated_games FROM memberships theirs
@@ -63,6 +63,8 @@ export function registerProfileRoutes({ app, db, q, HttpError, ratings, serializ
       accuracy: accuracies.length ? Math.round((accuracies.reduce((a, b) => a + b, 0) / accuracies.length) * 10) / 10 : null,
       reviewedGames: accuracies.length,
       recent,
+      // Lichess ratings are shown beside club ratings but kept separate: they come from a different pool.
+      lichess: lichessProfile(target.id),
     });
   });
 

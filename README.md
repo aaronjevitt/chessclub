@@ -25,6 +25,10 @@ The **club view** shows every live game in the club as a board that updates in r
 
 **PGN import** — on the *New game* page, paste a PGN or choose a file (up to 50 games) from chess.com, lichess or a scoresheet. Imported games are private unless you share them, can be reviewed, and feed your puzzles; they don't affect ratings.
 
+**Play on Lichess** — link your Lichess account on your profile (*Connect Lichess account*; standard Lichess sign-in, nothing to register), then choose *Play on Lichess* on the New game page: look for any opponent (rapid or slower), challenge a Lichess player by username (blitz or slower), or play the Lichess computer (levels 1–8) — all on this board, with clocks, draw offers and resignation. Lichess challenges to you appear on the home page. The server holds each member's Lichess token and relays the game live; Lichess's own rules apply, so these games have no evaluation bar or hints (engine help during a Lichess game breaks its fair-play rules), and apps can't play bullet there.
+
+**Ratings with Lichess** — Lichess rates Lichess games, and they change only your Lichess rating. Club ratings come only from games played in the club, so the two pools stay separate and comparable within themselves. Your Lichess ratings (blitz, rapid, classical…) show on your profile beside your club ratings, and players' Lichess ratings and rating changes show in the game. Finished Lichess games are saved as private games in your first club, so you can review them here and their mistakes become puzzles; like PGN imports, they don't count towards club records.
+
 **Notifications** — turn them on per device on your profile page to hear when it's your move, someone challenges you, accepts your challenge or offers a draw, or a tournament round pairs you (only while you don't have that game open). This is standard Web Push: the server generates its own keys, no third-party account is needed, and it requires HTTPS. On iPhone/iPad (iOS 16.4+), add Chess Club to the Home Screen first (Share → *Add to Home Screen*) and turn notifications on from there — the app is installable on other devices too.
 
 **Also** — move sounds (speaker button in the header to mute), premoves in online games (move while it's your opponent's turn; tap anywhere to cancel), club admin tools for owners (rename, privacy, new invite code, remove members, issue password-reset links), and account safety: login and sign-up rate limits, and password changes that sign out your other devices.
@@ -53,6 +57,8 @@ Environment variables:
 | `BACKUPS`       | on                    | `0` turns off the daily database backup         |
 | `BACKUP_DIR`    | `backups/` next to the database | Where daily backups go                 |
 | `BACKUP_KEEP`   | `14`                  | How many daily backups to keep                  |
+| `PUBLIC_URL`    | from the request      | The site's public address, e.g. `https://chess.example.com` (used for the Lichess sign-in return address if the proxy doesn't pass the right host) |
+| `LICHESS_HOST`  | `https://lichess.org` | Lichess server to talk to (for testing) |
 | `PUSH_SUBJECT`  | the site's URL        | Contact sent to push services (`mailto:you@example.com` or an `https://` URL) |
 
 Housekeeping runs by itself: a consistent copy of the database is written once a day (`VACUUM INTO`), timed online games nobody started are aborted after 10 minutes, broadcasts paused for a day are ended, and open challenges expire after a week.

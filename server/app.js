@@ -14,6 +14,7 @@ import { registerProfileRoutes } from './profiles.js';
 import { registerTournamentRoutes } from './tournaments.js';
 import { createPush } from './push.js';
 import { registerPuzzleRoutes } from './puzzles.js';
+import { registerLichess } from './lichess.js';
 import { splitPgn, parsePgnGame, pgnInfo, MAX_IMPORT_GAMES } from './pgn.js';
 import { summarizeReview } from './review-summary.js';
 import { START_FEN, replay, gameOverInfo, tryMove, isValidFen } from './chesslogic.js';
@@ -44,7 +45,7 @@ function makeInviteCode() {
   return Array.from(bytes, (b) => alphabet[b % alphabet.length]).join('');
 }
 
-export function createServer({ dbFile = path.join(ROOT, 'data', 'chessclub.db'), rateLimits = true, pushSend = null } = {}) {
+export function createServer({ dbFile = path.join(ROOT, 'data', 'chessclub.db'), rateLimits = true, pushSend = null, lichessHost } = {}) {
   const db = openDb(dbFile);
   const auth = createAuth(db);
   const app = express();
@@ -352,6 +353,8 @@ export function createServer({ dbFile = path.join(ROOT, 'data', 'chessclub.db'),
   app.use('/api', auth.requireUser);
   Object.assign(ctx, { notify, makeInviteCode, ratings, serializeGame, canView, onGameFinished, pushGame });
   push.registerRoutes(ctx);
+  const lichess = registerLichess({ ...ctx, push, ...(lichessHost ? { host: lichessHost } : {}) });
+  ctx.lichessProfile = (userId) => lichess.profileInfo(userId);
   registerProfileRoutes(ctx);
   registerTournamentRoutes(ctx);
   registerPuzzleRoutes(ctx);
@@ -804,7 +807,10 @@ export function createServer({ dbFile = path.join(ROOT, 'data', 'chessclub.db'),
     backups: process.env.BACKUPS !== '0',
   });
   maintenance.start();
-  server.on('close', () => maintenance.stop());
+  server.on('close', () => {
+    maintenance.stop();
+    lichess.close();
+  });
 
   return { app, server, io, db, maintenance, push };
 }

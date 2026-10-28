@@ -762,3 +762,12 @@ table.standings tr.withdrawn { opacity: .6; }
 @media (max-width: 560px) {
   .puzzle-panel h1 { display: none; }
 }
+
+/* The hidden attribute always wins over display rules (.btn, .field…). */
+[hidden] { display: none !important; }
+
+/* ---------- Lichess ---------- */
+.lichess-ratings { display: flex; gap: .4rem 1.2rem; flex-wrap: wrap; margin: .3rem 0 .6rem; }
+.lichess-rating strong { font-variant-numeric: tabular-nums; }
+.lichess-home > .list { margin-bottom: .5rem; }
+.lichess-title { color: #c08a2c; font-weight: 800; }

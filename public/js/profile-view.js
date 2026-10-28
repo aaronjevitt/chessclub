@@ -3,6 +3,7 @@ import { api } from './api.js';
 import { el, clear } from './dom.js';
 import { gameCard } from './game-card.js';
 import { changePasswordForm, notificationsCard } from './account-view.js';
+import { lichessProfileCard } from './lichess.js';
 import { START_RATING } from './rating-constants.js';
 
 /** Small line chart of a rating over time (starts from the initial rating). */
@@ -32,7 +33,7 @@ function record(label, r) {
     el('div', { class: 'stat-label muted small' }, `${label}${total ? ` · ${Math.round(((r.w + r.d / 2) / total) * 100)}%` : ''}`));
 }
 
-export async function profileView(main, id) {
+export async function profileView(main, id, params = new URLSearchParams()) {
   const p = await api(`/users/${id}`);
   const { user } = p;
   clear(main, el('div', { class: 'profile' },
@@ -61,6 +62,7 @@ export async function profileView(main, id) {
         el('div', { class: 'rating-big' }, `${c.rating}${c.provisional ? '?' : ''}`),
         el('div', { class: 'muted small' }, c.games ? `${c.games} rated game${c.games === 1 ? '' : 's'}${c.provisional ? ' · provisional' : ''}` : 'No rated games yet'),
         c.history.length ? ratingGraph(c.history) : null)))),
+    lichessProfileCard({ isMe: user.isMe, info: p.lichess, status: user.isMe ? params.get('lichess') : null }),
     el('section', {},
       el('h2', {}, 'Recent games'),
       p.recent.length
